@@ -15,6 +15,8 @@
       --accent: #84f6a6;
       --danger: #ff758f;
       --gold: #ffd166;
+      --mana: #7bdff2;
+      --boss: #ff5dc1;
     }
 
     * { box-sizing: border-box; }
@@ -60,10 +62,39 @@
     }
 
     .stats {
+      display: grid;
+      grid-template-columns: 76px 1fr;
+      gap: 10px;
+      align-items: start;
+      font-size: 14px;
+    }
+
+    .stat-grid {
       display: flex;
       flex-wrap: wrap;
       gap: 14px;
-      font-size: 14px;
+      align-items: center;
+    }
+
+    #portrait {
+      width: 64px;
+      height: 64px;
+      border: 2px solid #3b3a73;
+      border-radius: 4px;
+      background: #101028;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+
+    .inventory {
+      border: 1px solid #2f2d62;
+      background: #121223;
+      border-radius: 4px;
+      padding: 6px 8px;
+      color: #d6d3ff;
+      font-size: 12px;
+      line-height: 1.4;
+      min-height: 42px;
     }
 
     .log {
@@ -77,6 +108,8 @@
     .health { color: var(--accent); }
     .danger { color: var(--danger); }
     .gold { color: var(--gold); }
+    .mana { color: var(--mana); }
+    .boss { color: var(--boss); }
   </style>
 </head>
 <body>
@@ -88,45 +121,63 @@
 
   <section class="hud" aria-live="polite">
     <div class="stats">
-      <span>HP: <strong id="hp" class="health"></strong></span>
-      <span>Atk: <strong id="atk"></strong></span>
-      <span>Floor: <strong id="floor"></strong></span>
-      <span>Gold: <strong id="gold" class="gold"></strong></span>
-      <span>Enemies: <strong id="enemies" class="danger"></strong></span>
+      <canvas id="portrait" width="16" height="16" aria-label="Hero portrait"></canvas>
+      <div class="stat-grid">
+        <span>HP: <strong id="hp" class="health"></strong></span>
+        <span>MP: <strong id="mana" class="mana"></strong></span>
+        <span>Atk: <strong id="atk"></strong></span>
+        <span>Floor: <strong id="floor"></strong>/100</span>
+        <span>Gold: <strong id="gold" class="gold"></strong></span>
+        <span>Enemies: <strong id="enemies" class="danger"></strong></span>
+        <span>Boss: <strong id="bossStatus" class="boss"></strong></span>
+      </div>
     </div>
+    <div id="inventory" class="inventory"></div>
     <div class="log" id="log"></div>
-    <div class="hint">Move: WASD / Arrow keys · Wait: Space · Reach the <span class="gold">gold stairs</span> to descend.</div>
+    <div class="hint">Move: WASD / Arrows · Wait: Space · Spells: Z Arc Bolt, X Nova, C Heal · Use Relics: 1-6.</div>
   </section>
 
   <script>
     const tileSize = 24;
     const cols = 28;
     const rows = 18;
+    const maxFloor = 100;
 
     const canvas = document.getElementById("game");
     const ctx = canvas.getContext("2d");
+    const portrait = document.getElementById("portrait").getContext("2d");
 
     const ui = {
       hp: document.getElementById("hp"),
+      mana: document.getElementById("mana"),
       atk: document.getElementById("atk"),
       floor: document.getElementById("floor"),
       gold: document.getElementById("gold"),
       enemies: document.getElementById("enemies"),
+      bossStatus: document.getElementById("bossStatus"),
       log: document.getElementById("log"),
+      inventory: document.getElementById("inventory")
     };
 
     const COLORS = {
       wall: "#1f1f3b",
       floor: "#2f2f4f",
       floorShade: "#3a3a61",
-      player: "#84f6a6",
-      enemy: "#ff758f",
       coin: "#ffd166",
       potion: "#7bdff2",
+      relic: "#fca5ff",
       stairs: "#ffcf5c",
       shadow: "rgba(0,0,0,0.3)",
       fog: "rgba(4,4,10,0.55)"
     };
+
+    const ENEMY_TYPES = [
+      { id: "slime", color: "#7df38a", hp: 7, atk: 2, vision: 7 },
+      { id: "goblin", color: "#8cd16a", hp: 9, atk: 3, vision: 8 },
+      { id: "bat", color: "#a790ff", hp: 6, atk: 3, vision: 10 },
+      { id: "skeleton", color: "#efefef", hp: 10, atk: 4, vision: 8 },
+      { id: "imp", color: "#ff9f6e", hp: 8, atk: 5, vision: 9 }
+    ];
 
     const state = {
       floor: 1,
@@ -134,15 +185,42 @@
       rooms: [],
       coins: [],
       potions: [],
+      relicDrops: [],
       enemies: [],
       stairs: null,
-      player: { x: 2, y: 2, hp: 24, maxHp: 24, atk: 5, gold: 0 },
+      player: {
+        x: 2,
+        y: 2,
+        hp: 28,
+        maxHp: 28,
+        mana: 14,
+        maxMana: 14,
+        atk: 5,
+        spellPower: 2,
+        gold: 0,
+        inventory: []
+      },
+      runSeedWords: makeRunNameParts(),
+      bossAlive: false,
       message: "Enter the dungeon.",
       over: false,
+      won: false
     };
+
+    function makeRunNameParts() {
+      return {
+        left: ["Astra", "Void", "Grim", "Solar", "Riven", "Frost", "Mire", "Storm", "Echo", "Myth"],
+        mid: ["thorn", "spark", "glyph", "fang", "moss", "whisper", "ember", "shade", "nova", "rune"],
+        right: ["of Dawn", "of Cinders", "of Night", "of Tides", "of Roots", "of the Fox", "of Stars", "of Gales", "of Dust", "of Kings"]
+      };
+    }
 
     function rnd(min, max) {
       return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    function pick(arr) {
+      return arr[rnd(0, arr.length - 1)];
     }
 
     function key(x, y) {
@@ -178,8 +256,63 @@
     function randomFloorTile(room) {
       return {
         x: rnd(room.x + 1, room.x + room.w - 2),
-        y: rnd(room.y + 1, room.y + room.h - 2),
+        y: rnd(room.y + 1, room.y + room.h - 2)
       };
+    }
+
+    function makeRelicName() {
+      const { left, mid, right } = state.runSeedWords;
+      return `${pick(left)} ${pick(mid)} ${pick(right)}`;
+    }
+
+    function makeRelic(floorLevel) {
+      const effects = [
+        {
+          id: "meteor",
+          desc: "Call a meteor on the nearest foe",
+          apply: () => damageNearestEnemy(6 + floorLevel + state.player.spellPower)
+        },
+        {
+          id: "ward",
+          desc: "Gain +6 max HP and heal 6",
+          apply: () => {
+            state.player.maxHp += 6;
+            state.player.hp = Math.min(state.player.maxHp, state.player.hp + 6);
+            setMessage("A warm ward wraps your body.");
+          }
+        },
+        {
+          id: "mana",
+          desc: "Restore full mana and +2 max mana",
+          apply: () => {
+            state.player.maxMana += 2;
+            state.player.mana = state.player.maxMana;
+            setMessage("Your veins flood with arcane static.");
+          }
+        },
+        {
+          id: "fury",
+          desc: "Gain +2 attack permanently",
+          apply: () => {
+            state.player.atk += 2;
+            setMessage("Your blade hums with fury.");
+          }
+        },
+        {
+          id: "blinkshock",
+          desc: "Blink to a random room and blast nearby foes",
+          apply: () => {
+            const room = pick(state.rooms);
+            const pos = randomFloorTile(room);
+            state.player.x = pos.x;
+            state.player.y = pos.y;
+            damageAdjacentEnemies(6 + Math.floor(floorLevel / 2));
+            setMessage("Reality snaps and you blink away.");
+          }
+        }
+      ];
+      const effect = pick(effects);
+      return { name: makeRelicName(), desc: effect.desc, use: effect.apply };
     }
 
     function buildFloor() {
@@ -187,22 +320,17 @@
       state.rooms = [];
       state.coins = [];
       state.potions = [];
+      state.relicDrops = [];
       state.enemies = [];
       state.stairs = null;
+      state.bossAlive = false;
 
-      const roomCount = rnd(8, 12);
+      const roomCount = rnd(9, 13);
       for (let i = 0; i < roomCount; i++) {
-        const room = { x: rnd(1, cols - 8), y: rnd(1, rows - 7), w: rnd(4, 8), h: rnd(4, 6) };
+        const room = { x: rnd(1, cols - 8), y: rnd(1, rows - 7), w: rnd(4, 8), h: rnd(4, 7) };
         if (room.x + room.w >= cols - 1 || room.y + room.h >= rows - 1) continue;
 
-        let overlaps = false;
-        for (const existing of state.rooms) {
-          if (intersects(room, existing)) {
-            overlaps = true;
-            break;
-          }
-        }
-        if (overlaps) continue;
+        if (state.rooms.some((existing) => intersects(room, existing))) continue;
 
         carveRoom(room);
         if (state.rooms.length > 0) {
@@ -216,56 +344,81 @@
 
       if (!state.rooms.length) return buildFloor();
 
-      const startRoom = state.rooms[0];
-      const start = randomFloorTile(startRoom);
+      const start = randomFloorTile(state.rooms[0]);
       state.player.x = start.x;
       state.player.y = start.y;
 
-      const endRoom = state.rooms[state.rooms.length - 1];
-      state.stairs = randomFloorTile(endRoom);
-
+      state.stairs = randomFloorTile(state.rooms[state.rooms.length - 1]);
       const occupied = new Set([key(state.player.x, state.player.y), key(state.stairs.x, state.stairs.y)]);
 
-      const enemyCount = 3 + state.floor * 2;
+      const enemyCount = 5 + Math.floor(state.floor * 1.8);
       for (let i = 0; i < enemyCount; i++) {
-        const room = state.rooms[rnd(1, state.rooms.length - 1)] || state.rooms[0];
-        let tries = 0;
-        while (tries++ < 40) {
-          const pos = randomFloorTile(room);
-          const k = key(pos.x, pos.y);
-          if (occupied.has(k)) continue;
-          occupied.add(k);
-          state.enemies.push({ x: pos.x, y: pos.y, hp: 6 + state.floor * 2, atk: 2 + Math.floor(state.floor / 2) });
-          break;
-        }
+        placeEnemy(occupied, false);
       }
 
-      const coinCount = 5 + state.floor;
+      if (state.floor % 5 === 0) {
+        placeEnemy(occupied, true);
+        state.bossAlive = true;
+      }
+
+      const coinCount = 6 + Math.floor(state.floor * 1.1);
       for (let i = 0; i < coinCount; i++) {
-        const room = state.rooms[rnd(0, state.rooms.length - 1)];
-        let tries = 0;
-        while (tries++ < 40) {
-          const pos = randomFloorTile(room);
-          const k = key(pos.x, pos.y);
-          if (occupied.has(k)) continue;
-          occupied.add(k);
-          state.coins.push(pos);
-          break;
-        }
+        placePickup(state.coins, occupied);
       }
 
-      const potionCount = Math.max(1, Math.floor(state.floor / 2));
+      const potionCount = Math.max(2, Math.floor(state.floor / 3));
       for (let i = 0; i < potionCount; i++) {
-        const room = state.rooms[rnd(0, state.rooms.length - 1)];
-        let tries = 0;
-        while (tries++ < 40) {
-          const pos = randomFloorTile(room);
-          const k = key(pos.x, pos.y);
-          if (occupied.has(k)) continue;
-          occupied.add(k);
-          state.potions.push(pos);
-          break;
-        }
+        placePickup(state.potions, occupied);
+      }
+
+      const relicCount = 1 + Math.floor(state.floor / 8);
+      for (let i = 0; i < relicCount; i++) {
+        placePickup(state.relicDrops, occupied, { relic: makeRelic(state.floor) });
+      }
+    }
+
+    function placePickup(bucket, occupied, extra = {}) {
+      const room = pick(state.rooms);
+      let tries = 0;
+      while (tries++ < 45) {
+        const pos = randomFloorTile(room);
+        const k = key(pos.x, pos.y);
+        if (occupied.has(k)) continue;
+        occupied.add(k);
+        bucket.push({ ...pos, ...extra });
+        break;
+      }
+    }
+
+    function makeBossName() {
+      const first = ["Gore", "Night", "Bone", "Murk", "Rot", "Hex", "Dread", "Iron", "Blight", "Ash"];
+      const second = ["maw", "king", "warden", "tyrant", "seer", "fang", "golem", "devourer", "brute", "reaper"];
+      return `${pick(first)}${pick(second)}`;
+    }
+
+    function placeEnemy(occupied, isBoss) {
+      const room = state.rooms[rnd(1, state.rooms.length - 1)] || state.rooms[0];
+      const type = pick(ENEMY_TYPES);
+      let tries = 0;
+      while (tries++ < 45) {
+        const pos = randomFloorTile(room);
+        const k = key(pos.x, pos.y);
+        if (occupied.has(k)) continue;
+        occupied.add(k);
+        const scale = 1 + Math.floor(state.floor / 5);
+        state.enemies.push({
+          x: pos.x,
+          y: pos.y,
+          type: isBoss ? "boss" : type.id,
+          name: isBoss ? makeBossName() : type.id,
+          hp: isBoss ? 28 + state.floor * 3 : type.hp + scale * 2,
+          maxHp: isBoss ? 28 + state.floor * 3 : type.hp + scale * 2,
+          atk: isBoss ? 7 + Math.floor(state.floor / 2) : type.atk + scale,
+          vision: isBoss ? 12 : type.vision,
+          color: isBoss ? "#ff5dc1" : type.color,
+          boss: isBoss
+        });
+        break;
       }
     }
 
@@ -295,11 +448,82 @@
       enemy.hp -= Math.max(1, dmg);
       if (enemy.hp <= 0) {
         state.enemies = state.enemies.filter((e) => e !== enemy);
-        state.player.gold += rnd(2, 6);
-        setMessage(`You defeat a slime and loot coins.`);
+        const loot = enemy.boss ? rnd(12, 20) : rnd(2, 6);
+        state.player.gold += loot;
+        if (enemy.boss) {
+          state.bossAlive = false;
+          setMessage(`You slay ${enemy.name}, the floor boss!`);
+        } else {
+          setMessage(`You defeat a ${enemy.type} and loot ${loot} gold.`);
+        }
       } else {
-        setMessage(`You hit for ${dmg} damage.`);
+        setMessage(`You hit ${enemy.name} for ${dmg} damage.`);
       }
+    }
+
+    function damageNearestEnemy(amount) {
+      if (!state.enemies.length) {
+        setMessage("No enemies are close enough for that magic.");
+        return false;
+      }
+      const target = state.enemies
+        .map((enemy) => ({ enemy, dist: distance(enemy, state.player) }))
+        .sort((a, b) => a.dist - b.dist)[0].enemy;
+      target.hp -= amount;
+      setMessage(`Arcane force strikes ${target.name} for ${amount}.`);
+      if (target.hp <= 0) {
+        state.enemies = state.enemies.filter((enemy) => enemy !== target);
+        if (target.boss) state.bossAlive = false;
+      }
+      return true;
+    }
+
+    function damageAdjacentEnemies(amount) {
+      const nearby = state.enemies.filter((enemy) => distance(enemy, state.player) <= 1);
+      if (!nearby.length) return false;
+      for (const enemy of nearby) enemy.hp -= amount;
+      state.enemies = state.enemies.filter((enemy) => {
+        if (enemy.hp > 0) return true;
+        if (enemy.boss) state.bossAlive = false;
+        return false;
+      });
+      setMessage(`Nova erupts for ${amount} damage!`);
+      return true;
+    }
+
+    function castSpell(type) {
+      if (state.over) return;
+      const spells = {
+        bolt: { cost: 4, run: () => damageNearestEnemy(5 + state.player.spellPower + Math.floor(state.floor / 3)) },
+        nova: { cost: 7, run: () => damageAdjacentEnemies(6 + state.player.spellPower) },
+        mend: {
+          cost: 5,
+          run: () => {
+            const heal = 7 + state.player.spellPower;
+            state.player.hp = Math.min(state.player.maxHp, state.player.hp + heal);
+            setMessage(`You mend your wounds for ${heal}.`);
+            return true;
+          }
+        }
+      };
+      const spell = spells[type];
+      if (!spell) return;
+      if (state.player.mana < spell.cost) {
+        setMessage("Not enough mana.");
+        return;
+      }
+      const ok = spell.run();
+      if (!ok) return;
+      state.player.mana -= spell.cost;
+      enemyTurn();
+    }
+
+    function useRelic(index) {
+      const relic = state.player.inventory[index];
+      if (!relic) return;
+      relic.use();
+      state.player.inventory.splice(index, 1);
+      enemyTurn();
     }
 
     function tryMove(dx, dy) {
@@ -326,7 +550,7 @@
       const coinIndex = state.coins.findIndex((c) => c.x === nx && c.y === ny);
       if (coinIndex !== -1) {
         state.coins.splice(coinIndex, 1);
-        const amount = rnd(1, 4);
+        const amount = rnd(1, 5);
         state.player.gold += amount;
         setMessage(`You pick up ${amount} gold.`);
       }
@@ -334,16 +558,40 @@
       const potionIndex = state.potions.findIndex((p) => p.x === nx && p.y === ny);
       if (potionIndex !== -1) {
         state.potions.splice(potionIndex, 1);
-        const heal = rnd(5, 9);
+        const heal = rnd(6, 11);
         state.player.hp = Math.min(state.player.maxHp, state.player.hp + heal);
         setMessage(`You drink a potion (+${heal} HP).`);
       }
 
+      const relicIndex = state.relicDrops.findIndex((r) => r.x === nx && r.y === ny);
+      if (relicIndex !== -1) {
+        const relicDrop = state.relicDrops.splice(relicIndex, 1)[0];
+        if (state.player.inventory.length < 6) {
+          state.player.inventory.push(relicDrop.relic);
+          setMessage(`You found relic: ${relicDrop.relic.name}.`);
+        } else {
+          setMessage("Inventory full. Use relics with 1-6.");
+        }
+      }
+
       if (state.stairs.x === nx && state.stairs.y === ny) {
+        if (state.bossAlive) {
+          setMessage("A boss still guards this floor.");
+          enemyTurn();
+          return;
+        }
+        if (state.floor >= maxFloor) {
+          state.won = true;
+          state.over = true;
+          setMessage("You conquer floor 100 and claim the dungeon crown!");
+          return;
+        }
         state.floor += 1;
         state.player.atk += 1;
         state.player.maxHp += 2;
-        state.player.hp = Math.min(state.player.maxHp, state.player.hp + 4);
+        state.player.maxMana += 1;
+        state.player.mana = Math.min(state.player.maxMana, state.player.mana + 4);
+        state.player.hp = Math.min(state.player.maxHp, state.player.hp + 5);
         setMessage(`You descend to floor ${state.floor}.`);
         buildFloor();
       }
@@ -364,19 +612,16 @@
             setMessage("You were slain. Refresh to try again.");
             break;
           }
-          setMessage(`A slime claws you for ${dmg}.`);
+          setMessage(`${enemy.name} hits you for ${dmg}.`);
           continue;
         }
 
-        if (dist > 7) continue;
+        if (dist > enemy.vision) continue;
 
         let dx = 0;
         let dy = 0;
-        if (Math.abs(state.player.x - enemy.x) > Math.abs(state.player.y - enemy.y)) {
-          dx = state.player.x > enemy.x ? 1 : -1;
-        } else {
-          dy = state.player.y > enemy.y ? 1 : -1;
-        }
+        if (Math.abs(state.player.x - enemy.x) > Math.abs(state.player.y - enemy.y)) dx = state.player.x > enemy.x ? 1 : -1;
+        else dy = state.player.y > enemy.y ? 1 : -1;
 
         const tx = enemy.x + dx;
         const ty = enemy.y + dy;
@@ -386,13 +631,77 @@
           enemy.y = ty;
         }
       }
+      state.player.mana = Math.min(state.player.maxMana, state.player.mana + 1);
     }
 
     function drawTile(x, y, color) {
+      ctx.fillStyle = color;
+      ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
+    }
+
+    function drawHero(x, y) {
       const px = x * tileSize;
       const py = y * tileSize;
-      ctx.fillStyle = color;
-      ctx.fillRect(px, py, tileSize, tileSize);
+      ctx.fillStyle = "#4ea8ff";
+      ctx.fillRect(px + 9, py + 5, 6, 6);
+      ctx.fillStyle = "#e5c19c";
+      ctx.fillRect(px + 9, py + 2, 6, 4);
+      ctx.fillStyle = "#8ce0ff";
+      ctx.fillRect(px + 8, py + 11, 8, 8);
+      ctx.fillStyle = "#a2f58f";
+      ctx.fillRect(px + 6, py + 13, 3, 6);
+      ctx.fillRect(px + 15, py + 13, 3, 6);
+    }
+
+    function drawEnemy(enemy) {
+      const px = enemy.x * tileSize;
+      const py = enemy.y * tileSize;
+      if (enemy.type === "slime") {
+        ctx.fillStyle = "#52e86b";
+        ctx.fillRect(px + 5, py + 12, 14, 8);
+        ctx.fillRect(px + 7, py + 9, 10, 4);
+      } else if (enemy.type === "goblin") {
+        ctx.fillStyle = "#7dbd5b";
+        ctx.fillRect(px + 8, py + 6, 8, 10);
+        ctx.fillRect(px + 6, py + 9, 3, 7);
+        ctx.fillRect(px + 15, py + 9, 3, 7);
+        ctx.fillStyle = "#d2aa7a";
+        ctx.fillRect(px + 9, py + 3, 6, 4);
+      } else if (enemy.type === "bat") {
+        ctx.fillStyle = "#9981ff";
+        ctx.fillRect(px + 5, py + 10, 4, 4);
+        ctx.fillRect(px + 9, py + 8, 6, 6);
+        ctx.fillRect(px + 15, py + 10, 4, 4);
+      } else if (enemy.type === "skeleton") {
+        ctx.fillStyle = "#f1f1f1";
+        ctx.fillRect(px + 9, py + 3, 6, 5);
+        ctx.fillRect(px + 8, py + 9, 8, 8);
+      } else if (enemy.type === "imp") {
+        ctx.fillStyle = "#ff9b6e";
+        ctx.fillRect(px + 8, py + 6, 8, 10);
+        ctx.fillStyle = "#ff6f4c";
+        ctx.fillRect(px + 6, py + 6, 2, 4);
+        ctx.fillRect(px + 16, py + 6, 2, 4);
+      } else {
+        ctx.fillStyle = "#ff5dc1";
+        ctx.fillRect(px + 6, py + 5, 12, 14);
+        ctx.fillStyle = "#ffd2ec";
+        ctx.fillRect(px + 9, py + 2, 6, 4);
+      }
+    }
+
+    function drawPortrait() {
+      portrait.fillStyle = "#101028";
+      portrait.fillRect(0, 0, 16, 16);
+      portrait.fillStyle = "#4ea8ff";
+      portrait.fillRect(6, 5, 4, 4);
+      portrait.fillStyle = "#e5c19c";
+      portrait.fillRect(6, 3, 4, 2);
+      portrait.fillStyle = "#8ce0ff";
+      portrait.fillRect(5, 9, 6, 5);
+      portrait.fillStyle = "#a2f58f";
+      portrait.fillRect(4, 10, 1, 3);
+      portrait.fillRect(11, 10, 1, 3);
     }
 
     function draw() {
@@ -407,14 +716,15 @@
 
       for (const c of state.coins) drawTile(c.x, c.y, COLORS.coin);
       for (const p of state.potions) drawTile(p.x, p.y, COLORS.potion);
+      for (const relic of state.relicDrops) drawTile(relic.x, relic.y, COLORS.relic);
       drawTile(state.stairs.x, state.stairs.y, COLORS.stairs);
-      for (const e of state.enemies) drawTile(e.x, e.y, COLORS.enemy);
-      drawTile(state.player.x, state.player.y, COLORS.player);
+      for (const enemy of state.enemies) drawEnemy(enemy);
+      drawHero(state.player.x, state.player.y);
 
       for (let y = 0; y < rows; y++) {
         for (let x = 0; x < cols; x++) {
           const d = Math.abs(x - state.player.x) + Math.abs(y - state.player.y);
-          if (d > 7) {
+          if (d > 8) {
             ctx.fillStyle = COLORS.fog;
             ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
           }
@@ -422,19 +732,26 @@
       }
 
       ui.hp.textContent = `${state.player.hp}/${state.player.maxHp}`;
-      ui.atk.textContent = state.player.atk;
+      ui.mana.textContent = `${state.player.mana}/${state.player.maxMana}`;
+      ui.atk.textContent = `${state.player.atk} (+${state.player.spellPower} spell)`;
       ui.floor.textContent = state.floor;
       ui.gold.textContent = state.player.gold;
       ui.enemies.textContent = state.enemies.length;
+      ui.bossStatus.textContent = state.bossAlive ? "Alive" : "Cleared";
+      ui.inventory.innerHTML = state.player.inventory.length
+        ? `Inventory: ${state.player.inventory.map((item, i) => `[${i + 1}] ${item.name} — ${item.desc}`).join("<br>")}`
+        : "Inventory: empty. Find glowing relic tiles.";
+
+      drawPortrait();
 
       if (state.over) {
         ctx.fillStyle = COLORS.shadow;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = "#fff";
-        ctx.font = "bold 24px Courier New";
-        ctx.fillText("GAME OVER", canvas.width / 2 - 70, canvas.height / 2 - 4);
+        ctx.font = "bold 22px Courier New";
+        ctx.fillText(state.won ? "YOU WIN" : "GAME OVER", canvas.width / 2 - 64, canvas.height / 2 - 8);
         ctx.font = "14px Courier New";
-        ctx.fillText("Refresh page to restart", canvas.width / 2 - 90, canvas.height / 2 + 24);
+        ctx.fillText(state.won ? "You survived all 100 floors!" : "Refresh page to restart", canvas.width / 2 - 110, canvas.height / 2 + 18);
       }
     }
 
@@ -445,7 +762,7 @@
 
     window.addEventListener("keydown", (e) => {
       const k = e.key.toLowerCase();
-      if (["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d", " "].includes(k)) {
+      if (["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d", " ", "z", "x", "c", "1", "2", "3", "4", "5", "6"].includes(k)) {
         e.preventDefault();
       }
 
@@ -453,14 +770,18 @@
       if (k === "arrowdown" || k === "s") tryMove(0, 1);
       if (k === "arrowleft" || k === "a") tryMove(-1, 0);
       if (k === "arrowright" || k === "d") tryMove(1, 0);
+      if (k === "z") castSpell("bolt");
+      if (k === "x") castSpell("nova");
+      if (k === "c") castSpell("mend");
+      if (["1", "2", "3", "4", "5", "6"].includes(k)) useRelic(Number(k) - 1);
       if (k === " ") {
-        setMessage("You wait and listen...");
+        setMessage("You wait and gather focus.");
         enemyTurn();
       }
     });
 
     buildFloor();
-    setMessage("Find loot and take the stairs deeper.");
+    setMessage("Find relics, cast spells, and survive 100 floors.");
     loop();
   </script>
 </body>
