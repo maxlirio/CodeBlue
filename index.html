@@ -39,6 +39,7 @@
       box-shadow: 0 0 0 4px #0c0c15, 0 12px 30px rgba(0, 0, 0, 0.5);
       padding: 10px;
       border-radius: 6px;
+      position: relative;
     }
 
     canvas {
@@ -110,6 +111,45 @@
     .gold { color: var(--gold); }
     .mana { color: var(--mana); }
     .boss { color: var(--boss); }
+
+    .overlay {
+      position: absolute;
+      inset: 10px;
+      background: rgba(9, 9, 20, 0.88);
+      border: 1px solid #4b4896;
+      border-radius: 6px;
+      color: #f2f1ff;
+      display: grid;
+      align-content: center;
+      justify-items: center;
+      gap: 10px;
+      padding: 16px;
+      text-align: center;
+      z-index: 10;
+    }
+
+    .overlay.hidden { display: none; }
+
+    .choice-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 10px;
+      width: min(100%, 650px);
+    }
+
+    .choice {
+      border: 1px solid #6663b6;
+      border-radius: 6px;
+      padding: 10px;
+      background: #181835;
+      cursor: pointer;
+      color: inherit;
+      font-family: inherit;
+      text-align: left;
+    }
+
+    .choice:hover { border-color: #9f9af0; }
+    .choice strong { display: block; margin-bottom: 4px; }
   </style>
 </head>
 <body>
@@ -117,12 +157,25 @@
   <p>Your site is working.</p>
   <div class="frame">
     <canvas id="game" width="672" height="432" aria-label="Rogue-like game board"></canvas>
+    <div id="classOverlay" class="overlay">
+      <h2>Choose Your Class</h2>
+      <p>Each class starts with different stats, a weapon, and spell focus.</p>
+      <div id="classChoices" class="choice-grid"></div>
+    </div>
+    <div id="shopOverlay" class="overlay hidden">
+      <h2>Boss Defeated — Merchant Caravan</h2>
+      <p id="shopGold"></p>
+      <div id="shopChoices" class="choice-grid"></div>
+      <button class="choice" id="leaveShop">Continue Descent</button>
+    </div>
   </div>
 
   <section class="hud" aria-live="polite">
     <div class="stats">
       <canvas id="portrait" width="16" height="16" aria-label="Hero portrait"></canvas>
       <div class="stat-grid">
+        <span>Class: <strong id="className"></strong></span>
+        <span>Weapon: <strong id="weapon"></strong></span>
         <span>HP: <strong id="hp" class="health"></strong></span>
         <span>MP: <strong id="mana" class="mana"></strong></span>
         <span>Atk: <strong id="atk"></strong></span>
@@ -133,8 +186,9 @@
       </div>
     </div>
     <div id="inventory" class="inventory"></div>
+    <div id="spells" class="inventory"></div>
     <div class="log" id="log"></div>
-    <div class="hint">Move: WASD / Arrows · Wait: Space · Spells: Z Arc Bolt, X Nova, C Heal · Use Relics: 1-6.</div>
+    <div class="hint">Move: WASD / Arrows · Wait: Space · Cast: Z/X/C/V (learn more via scrolls) · Relics: 1-6.</div>
   </section>
 
   <script>
@@ -148,6 +202,8 @@
     const portrait = document.getElementById("portrait").getContext("2d");
 
     const ui = {
+      className: document.getElementById("className"),
+      weapon: document.getElementById("weapon"),
       hp: document.getElementById("hp"),
       mana: document.getElementById("mana"),
       atk: document.getElementById("atk"),
@@ -156,7 +212,14 @@
       enemies: document.getElementById("enemies"),
       bossStatus: document.getElementById("bossStatus"),
       log: document.getElementById("log"),
-      inventory: document.getElementById("inventory")
+      inventory: document.getElementById("inventory"),
+      spells: document.getElementById("spells"),
+      classOverlay: document.getElementById("classOverlay"),
+      classChoices: document.getElementById("classChoices"),
+      shopOverlay: document.getElementById("shopOverlay"),
+      shopGold: document.getElementById("shopGold"),
+      shopChoices: document.getElementById("shopChoices"),
+      leaveShop: document.getElementById("leaveShop")
     };
 
     const COLORS = {
@@ -166,17 +229,90 @@
       coin: "#ffd166",
       potion: "#7bdff2",
       relic: "#fca5ff",
+      spell: "#6be4ff",
+      weapon: "#ffc46e",
       stairs: "#ffcf5c",
       shadow: "rgba(0,0,0,0.3)",
       fog: "rgba(4,4,10,0.55)"
     };
 
+    const CLASS_OPTIONS = [
+      { name: "Knight", hp: 36, mana: 10, atk: 6, spellPower: 1, weapon: "Iron Longsword" },
+      { name: "Mage", hp: 24, mana: 20, atk: 4, spellPower: 4, weapon: "Rune Staff" },
+      { name: "Ranger", hp: 29, mana: 14, atk: 5, spellPower: 2, weapon: "Hunter Spear" }
+    ];
+
+    const WEAPON_POOL = [
+      { name: "Wolf Fang Blade", atk: 3, mana: 0 },
+      { name: "Arcsteel Halberd", atk: 4, mana: -1 },
+      { name: "Moonlit Rapier", atk: 2, mana: 2 },
+      { name: "Runic Axe", atk: 5, mana: -2 },
+      { name: "Sapphire Wand", atk: 1, mana: 4 }
+    ];
+
     const ENEMY_TYPES = [
-      { id: "slime", color: "#7df38a", hp: 7, atk: 2, vision: 7 },
-      { id: "goblin", color: "#8cd16a", hp: 9, atk: 3, vision: 8 },
-      { id: "bat", color: "#a790ff", hp: 6, atk: 3, vision: 10 },
-      { id: "skeleton", color: "#efefef", hp: 10, atk: 4, vision: 8 },
-      { id: "imp", color: "#ff9f6e", hp: 8, atk: 5, vision: 9 }
+      { id: "slime", hp: 7, atk: 2, vision: 7 },
+      { id: "goblin", hp: 9, atk: 3, vision: 8 },
+      { id: "bat", hp: 6, atk: 3, vision: 10 },
+      { id: "skeleton", hp: 10, atk: 4, vision: 8 },
+      { id: "imp", hp: 8, atk: 5, vision: 9 },
+      { id: "wolf", hp: 12, atk: 5, vision: 11 },
+      { id: "orc", hp: 15, atk: 6, vision: 8 },
+      { id: "wraith", hp: 11, atk: 7, vision: 12 }
+    ];
+
+    const SPELL_LIBRARY = [
+      {
+        id: "bolt",
+        name: "Arc Bolt",
+        cost: 4,
+        key: "z",
+        cast: () => damageNearestEnemy(7 + state.player.spellPower + Math.floor(state.floor / 4), "#7bdff2")
+      },
+      {
+        id: "nova",
+        name: "Flame Nova",
+        cost: 7,
+        key: "x",
+        cast: () => damageAdjacentEnemies(7 + state.player.spellPower, "#ff9e4f")
+      },
+      {
+        id: "mend",
+        name: "Mend",
+        cost: 5,
+        key: "c",
+        cast: () => {
+          const heal = 8 + state.player.spellPower;
+          state.player.hp = Math.min(state.player.maxHp, state.player.hp + heal);
+          spawnBurst(state.player.x, state.player.y, "#84f6a6", 14);
+          setMessage(`You mend ${heal} HP.`);
+          return true;
+        }
+      },
+      {
+        id: "chain",
+        name: "Chain Spark",
+        cost: 8,
+        key: "v",
+        cast: () => {
+          const targets = state.enemies
+            .map((enemy) => ({ enemy, dist: distance(enemy, state.player) }))
+            .sort((a, b) => a.dist - b.dist)
+            .slice(0, 3)
+            .map((v) => v.enemy);
+          if (!targets.length) {
+            setMessage("No enemies for Chain Spark.");
+            return false;
+          }
+          for (const t of targets) {
+            t.hp -= 6 + state.player.spellPower;
+            spawnBeam(state.player.x, state.player.y, t.x, t.y, "#6be4ff");
+          }
+          clearDeadEnemies();
+          setMessage(`Chain Spark jumps across ${targets.length} foes.`);
+          return true;
+        }
+      }
     ];
 
     const state = {
@@ -186,25 +322,34 @@
       coins: [],
       potions: [],
       relicDrops: [],
+      spellDrops: [],
+      weaponDrops: [],
       enemies: [],
       stairs: null,
+      particles: [],
       player: {
+        className: "",
+        weapon: "",
         x: 2,
         y: 2,
-        hp: 28,
-        maxHp: 28,
-        mana: 14,
-        maxMana: 14,
+        hp: 30,
+        maxHp: 30,
+        mana: 12,
+        maxMana: 12,
         atk: 5,
+        baseAtk: 5,
         spellPower: 2,
         gold: 0,
-        inventory: []
+        inventory: [],
+        knownSpells: new Set(["bolt", "nova", "mend"]) // chain found via scroll
       },
       runSeedWords: makeRunNameParts(),
       bossAlive: false,
-      message: "Enter the dungeon.",
+      awaitingShop: false,
+      message: "Choose your class.",
       over: false,
-      won: false
+      won: false,
+      started: false
     };
 
     function makeRunNameParts() {
@@ -215,37 +360,21 @@
       };
     }
 
-    function rnd(min, max) {
-      return Math.floor(Math.random() * (max - min + 1)) + min;
-    }
-
-    function pick(arr) {
-      return arr[rnd(0, arr.length - 1)];
-    }
-
-    function key(x, y) {
-      return `${x},${y}`;
-    }
+    function rnd(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+    function pick(arr) { return arr[rnd(0, arr.length - 1)]; }
+    function key(x, y) { return `${x},${y}`; }
 
     function carveRoom(room) {
       for (let y = room.y; y < room.y + room.h; y++) {
-        for (let x = room.x; x < room.x + room.w; x++) {
-          state.map[y][x] = 0;
-        }
+        for (let x = room.x; x < room.x + room.w; x++) state.map[y][x] = 0;
       }
     }
 
     function carveCorridor(x1, y1, x2, y2) {
       let x = x1;
       let y = y1;
-      while (x !== x2) {
-        state.map[y][x] = 0;
-        x += x < x2 ? 1 : -1;
-      }
-      while (y !== y2) {
-        state.map[y][x] = 0;
-        y += y < y2 ? 1 : -1;
-      }
+      while (x !== x2) { state.map[y][x] = 0; x += x < x2 ? 1 : -1; }
+      while (y !== y2) { state.map[y][x] = 0; y += y < y2 ? 1 : -1; }
       state.map[y][x] = 0;
     }
 
@@ -254,10 +383,7 @@
     }
 
     function randomFloorTile(room) {
-      return {
-        x: rnd(room.x + 1, room.x + room.w - 2),
-        y: rnd(room.y + 1, room.y + room.h - 2)
-      };
+      return { x: rnd(room.x + 1, room.x + room.w - 2), y: rnd(room.y + 1, room.y + room.h - 2) };
     }
 
     function makeRelicName() {
@@ -267,52 +393,19 @@
 
     function makeRelic(floorLevel) {
       const effects = [
-        {
-          id: "meteor",
-          desc: "Call a meteor on the nearest foe",
-          apply: () => damageNearestEnemy(6 + floorLevel + state.player.spellPower)
-        },
-        {
-          id: "ward",
-          desc: "Gain +6 max HP and heal 6",
-          apply: () => {
-            state.player.maxHp += 6;
-            state.player.hp = Math.min(state.player.maxHp, state.player.hp + 6);
-            setMessage("A warm ward wraps your body.");
-          }
-        },
-        {
-          id: "mana",
-          desc: "Restore full mana and +2 max mana",
-          apply: () => {
-            state.player.maxMana += 2;
-            state.player.mana = state.player.maxMana;
-            setMessage("Your veins flood with arcane static.");
-          }
-        },
-        {
-          id: "fury",
-          desc: "Gain +2 attack permanently",
-          apply: () => {
-            state.player.atk += 2;
-            setMessage("Your blade hums with fury.");
-          }
-        },
-        {
-          id: "blinkshock",
-          desc: "Blink to a random room and blast nearby foes",
-          apply: () => {
-            const room = pick(state.rooms);
-            const pos = randomFloorTile(room);
-            state.player.x = pos.x;
-            state.player.y = pos.y;
-            damageAdjacentEnemies(6 + Math.floor(floorLevel / 2));
-            setMessage("Reality snaps and you blink away.");
-          }
-        }
+        { desc: "Meteor nearest foe", apply: () => damageNearestEnemy(8 + floorLevel + state.player.spellPower, "#f9a03f") },
+        { desc: "+8 max HP and heal", apply: () => { state.player.maxHp += 8; state.player.hp = Math.min(state.player.maxHp, state.player.hp + 8); setMessage("Your life force surges."); } },
+        { desc: "Full mana +2 max mana", apply: () => { state.player.maxMana += 2; state.player.mana = state.player.maxMana; setMessage("Mana channels open."); } },
+        { desc: "+2 permanent attack", apply: () => { state.player.baseAtk += 2; recalcAttack(); setMessage("Your strikes grow deadlier."); } },
+        { desc: "Blink and shock adjacent", apply: () => { const room = pick(state.rooms); const pos = randomFloorTile(room); state.player.x = pos.x; state.player.y = pos.y; damageAdjacentEnemies(7 + Math.floor(floorLevel / 2), "#b388ff"); setMessage("You blink through reality."); } }
       ];
       const effect = pick(effects);
       return { name: makeRelicName(), desc: effect.desc, use: effect.apply };
+    }
+
+    function recalcAttack() {
+      const weaponBonus = state.player.weaponBonus || 0;
+      state.player.atk = state.player.baseAtk + weaponBonus;
     }
 
     function buildFloor() {
@@ -321,6 +414,8 @@
       state.coins = [];
       state.potions = [];
       state.relicDrops = [];
+      state.spellDrops = [];
+      state.weaponDrops = [];
       state.enemies = [];
       state.stairs = null;
       state.bossAlive = false;
@@ -329,7 +424,6 @@
       for (let i = 0; i < roomCount; i++) {
         const room = { x: rnd(1, cols - 8), y: rnd(1, rows - 7), w: rnd(4, 8), h: rnd(4, 7) };
         if (room.x + room.w >= cols - 1 || room.y + room.h >= rows - 1) continue;
-
         if (state.rooms.some((existing) => intersects(room, existing))) continue;
 
         carveRoom(room);
@@ -351,29 +445,21 @@
       state.stairs = randomFloorTile(state.rooms[state.rooms.length - 1]);
       const occupied = new Set([key(state.player.x, state.player.y), key(state.stairs.x, state.stairs.y)]);
 
-      const enemyCount = 5 + Math.floor(state.floor * 1.8);
-      for (let i = 0; i < enemyCount; i++) {
-        placeEnemy(occupied, false);
-      }
+      const enemyCount = 8 + Math.floor(state.floor * 2.1);
+      for (let i = 0; i < enemyCount; i++) placeEnemy(occupied, false);
 
       if (state.floor % 5 === 0) {
         placeEnemy(occupied, true);
         state.bossAlive = true;
       }
 
-      const coinCount = 6 + Math.floor(state.floor * 1.1);
-      for (let i = 0; i < coinCount; i++) {
-        placePickup(state.coins, occupied);
-      }
-
-      const potionCount = Math.max(2, Math.floor(state.floor / 3));
-      for (let i = 0; i < potionCount; i++) {
-        placePickup(state.potions, occupied);
-      }
-
-      const relicCount = 1 + Math.floor(state.floor / 8);
-      for (let i = 0; i < relicCount; i++) {
-        placePickup(state.relicDrops, occupied, { relic: makeRelic(state.floor) });
+      for (let i = 0; i < 7 + Math.floor(state.floor * 1.2); i++) placePickup(state.coins, occupied);
+      for (let i = 0; i < Math.max(2, Math.floor(state.floor / 3)); i++) placePickup(state.potions, occupied);
+      for (let i = 0; i < 1 + Math.floor(state.floor / 8); i++) placePickup(state.relicDrops, occupied, { relic: makeRelic(state.floor) });
+      if (state.floor > 2) placePickup(state.weaponDrops, occupied, { weapon: pick(WEAPON_POOL) });
+      if (state.floor % 4 === 0) {
+        const unknown = SPELL_LIBRARY.filter((spell) => !state.player.knownSpells.has(spell.id));
+        if (unknown.length) placePickup(state.spellDrops, occupied, { spell: pick(unknown) });
       }
     }
 
@@ -411,114 +497,137 @@
           y: pos.y,
           type: isBoss ? "boss" : type.id,
           name: isBoss ? makeBossName() : type.id,
-          hp: isBoss ? 28 + state.floor * 3 : type.hp + scale * 2,
-          maxHp: isBoss ? 28 + state.floor * 3 : type.hp + scale * 2,
-          atk: isBoss ? 7 + Math.floor(state.floor / 2) : type.atk + scale,
+          hp: isBoss ? 32 + state.floor * 4 : type.hp + scale * 2,
+          atk: isBoss ? 8 + Math.floor(state.floor / 2) : type.atk + scale,
           vision: isBoss ? 12 : type.vision,
-          color: isBoss ? "#ff5dc1" : type.color,
           boss: isBoss
         });
         break;
       }
     }
 
-    function inBounds(x, y) {
-      return x >= 0 && y >= 0 && x < cols && y < rows;
-    }
+    function inBounds(x, y) { return x >= 0 && y >= 0 && x < cols && y < rows; }
+    function isWalkable(x, y) { return inBounds(x, y) && state.map[y][x] === 0; }
+    function enemyAt(x, y) { return state.enemies.find((e) => e.x === x && e.y === y); }
+    function distance(a, b) { return Math.abs(a.x - b.x) + Math.abs(a.y - b.y); }
+    function setMessage(msg) { state.message = msg; ui.log.textContent = msg; }
 
-    function isWalkable(x, y) {
-      return inBounds(x, y) && state.map[y][x] === 0;
-    }
-
-    function enemyAt(x, y) {
-      return state.enemies.find((e) => e.x === x && e.y === y);
-    }
-
-    function distance(a, b) {
-      return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-    }
-
-    function setMessage(msg) {
-      state.message = msg;
-      ui.log.textContent = msg;
-    }
-
-    function playerAttack(enemy) {
-      const dmg = rnd(state.player.atk - 1, state.player.atk + 2);
-      enemy.hp -= Math.max(1, dmg);
-      if (enemy.hp <= 0) {
-        state.enemies = state.enemies.filter((e) => e !== enemy);
-        const loot = enemy.boss ? rnd(12, 20) : rnd(2, 6);
-        state.player.gold += loot;
-        if (enemy.boss) {
-          state.bossAlive = false;
-          setMessage(`You slay ${enemy.name}, the floor boss!`);
-        } else {
-          setMessage(`You defeat a ${enemy.type} and loot ${loot} gold.`);
-        }
-      } else {
-        setMessage(`You hit ${enemy.name} for ${dmg} damage.`);
+    function spawnBurst(x, y, color, count = 10) {
+      for (let i = 0; i < count; i++) {
+        state.particles.push({
+          x: x * tileSize + tileSize / 2,
+          y: y * tileSize + tileSize / 2,
+          vx: (Math.random() - 0.5) * 2.6,
+          vy: (Math.random() - 0.5) * 2.6,
+          life: rnd(14, 22),
+          color
+        });
       }
     }
 
-    function damageNearestEnemy(amount) {
+    function spawnBeam(x1, y1, x2, y2, color) {
+      const sx = x1 * tileSize + tileSize / 2;
+      const sy = y1 * tileSize + tileSize / 2;
+      const ex = x2 * tileSize + tileSize / 2;
+      const ey = y2 * tileSize + tileSize / 2;
+      const steps = 10;
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        state.particles.push({
+          x: sx + (ex - sx) * t,
+          y: sy + (ey - sy) * t,
+          vx: (Math.random() - 0.5) * 0.8,
+          vy: (Math.random() - 0.5) * 0.8,
+          life: rnd(6, 12),
+          color
+        });
+      }
+    }
+
+    function clearDeadEnemies() {
+      let killedBoss = false;
+      state.enemies = state.enemies.filter((enemy) => {
+        if (enemy.hp > 0) return true;
+        if (enemy.boss) killedBoss = true;
+        state.player.gold += enemy.boss ? rnd(18, 30) : rnd(2, 7);
+        spawnBurst(enemy.x, enemy.y, enemy.boss ? "#ff5dc1" : "#ffd166", 12);
+        return false;
+      });
+      if (killedBoss) {
+        state.bossAlive = false;
+        state.awaitingShop = true;
+        openShop();
+        setMessage("The boss falls. A merchant appears.");
+      }
+    }
+
+    function playerAttack(enemy) {
+      const dmg = rnd(state.player.atk - 1, state.player.atk + 3);
+      enemy.hp -= Math.max(1, dmg);
+      spawnBurst(enemy.x, enemy.y, "#ff758f", 9);
+      if (enemy.hp <= 0) {
+        state.player.gold += enemy.boss ? rnd(18, 30) : rnd(3, 8);
+        if (enemy.boss) {
+          setMessage(`You slay ${enemy.name}, floor boss!`);
+          state.bossAlive = false;
+          state.awaitingShop = true;
+          state.enemies = state.enemies.filter((e) => e !== enemy);
+          openShop();
+          return;
+        }
+        state.enemies = state.enemies.filter((e) => e !== enemy);
+        setMessage(`You defeat a ${enemy.type}.`);
+      } else {
+        setMessage(`You hit ${enemy.name} for ${dmg}.`);
+      }
+    }
+
+    function damageNearestEnemy(amount, color) {
       if (!state.enemies.length) {
-        setMessage("No enemies are close enough for that magic.");
+        setMessage("No enemy for that spell.");
         return false;
       }
       const target = state.enemies
         .map((enemy) => ({ enemy, dist: distance(enemy, state.player) }))
         .sort((a, b) => a.dist - b.dist)[0].enemy;
       target.hp -= amount;
-      setMessage(`Arcane force strikes ${target.name} for ${amount}.`);
-      if (target.hp <= 0) {
-        state.enemies = state.enemies.filter((enemy) => enemy !== target);
-        if (target.boss) state.bossAlive = false;
-      }
+      spawnBeam(state.player.x, state.player.y, target.x, target.y, color);
+      setMessage(`${target.name} takes ${amount} magic damage.`);
+      clearDeadEnemies();
       return true;
     }
 
-    function damageAdjacentEnemies(amount) {
+    function damageAdjacentEnemies(amount, color) {
       const nearby = state.enemies.filter((enemy) => distance(enemy, state.player) <= 1);
-      if (!nearby.length) return false;
-      for (const enemy of nearby) enemy.hp -= amount;
-      state.enemies = state.enemies.filter((enemy) => {
-        if (enemy.hp > 0) return true;
-        if (enemy.boss) state.bossAlive = false;
+      if (!nearby.length) {
+        setMessage("No nearby enemies.");
         return false;
-      });
-      setMessage(`Nova erupts for ${amount} damage!`);
+      }
+      for (const enemy of nearby) {
+        enemy.hp -= amount;
+        spawnBurst(enemy.x, enemy.y, color, 8);
+      }
+      setMessage(`Nova hits ${nearby.length} foes.`);
+      clearDeadEnemies();
       return true;
     }
 
-    function castSpell(type) {
-      if (state.over) return;
-      const spells = {
-        bolt: { cost: 4, run: () => damageNearestEnemy(5 + state.player.spellPower + Math.floor(state.floor / 3)) },
-        nova: { cost: 7, run: () => damageAdjacentEnemies(6 + state.player.spellPower) },
-        mend: {
-          cost: 5,
-          run: () => {
-            const heal = 7 + state.player.spellPower;
-            state.player.hp = Math.min(state.player.maxHp, state.player.hp + heal);
-            setMessage(`You mend your wounds for ${heal}.`);
-            return true;
-          }
-        }
-      };
-      const spell = spells[type];
+    function castBoundSpell(keyName) {
+      if (state.over || !state.started || state.awaitingShop) return;
+      const spell = SPELL_LIBRARY.find((sp) => sp.key === keyName && state.player.knownSpells.has(sp.id));
       if (!spell) return;
       if (state.player.mana < spell.cost) {
         setMessage("Not enough mana.");
         return;
       }
-      const ok = spell.run();
+      const ok = spell.cast();
       if (!ok) return;
       state.player.mana -= spell.cost;
       enemyTurn();
     }
 
     function useRelic(index) {
+      if (state.awaitingShop) return;
       const relic = state.player.inventory[index];
       if (!relic) return;
       relic.use();
@@ -526,9 +635,17 @@
       enemyTurn();
     }
 
-    function tryMove(dx, dy) {
-      if (state.over) return;
+    function equipWeapon(weapon) {
+      state.player.weapon = weapon.name;
+      state.player.weaponBonus = weapon.atk;
+      state.player.maxMana = Math.max(6, state.player.maxMana + weapon.mana);
+      state.player.mana = Math.min(state.player.mana, state.player.maxMana);
+      recalcAttack();
+      setMessage(`Equipped ${weapon.name}.`);
+    }
 
+    function tryMove(dx, dy) {
+      if (state.over || !state.started || state.awaitingShop) return;
       const nx = state.player.x + dx;
       const ny = state.player.y + dy;
       if (!isWalkable(nx, ny)) {
@@ -552,15 +669,16 @@
         state.coins.splice(coinIndex, 1);
         const amount = rnd(1, 5);
         state.player.gold += amount;
-        setMessage(`You pick up ${amount} gold.`);
+        setMessage(`You found ${amount} gold.`);
       }
 
       const potionIndex = state.potions.findIndex((p) => p.x === nx && p.y === ny);
       if (potionIndex !== -1) {
         state.potions.splice(potionIndex, 1);
-        const heal = rnd(6, 11);
+        const heal = rnd(6, 12);
         state.player.hp = Math.min(state.player.maxHp, state.player.hp + heal);
-        setMessage(`You drink a potion (+${heal} HP).`);
+        spawnBurst(nx, ny, "#84f6a6", 10);
+        setMessage(`Potion heals ${heal} HP.`);
       }
 
       const relicIndex = state.relicDrops.findIndex((r) => r.x === nx && r.y === ny);
@@ -568,16 +686,33 @@
         const relicDrop = state.relicDrops.splice(relicIndex, 1)[0];
         if (state.player.inventory.length < 6) {
           state.player.inventory.push(relicDrop.relic);
-          setMessage(`You found relic: ${relicDrop.relic.name}.`);
+          setMessage(`Found relic: ${relicDrop.relic.name}.`);
         } else {
-          setMessage("Inventory full. Use relics with 1-6.");
+          setMessage("Inventory full for relics.");
         }
+      }
+
+      const spellIndex = state.spellDrops.findIndex((s) => s.x === nx && s.y === ny);
+      if (spellIndex !== -1) {
+        const spell = state.spellDrops.splice(spellIndex, 1)[0].spell;
+        state.player.knownSpells.add(spell.id);
+        setMessage(`You learned spell: ${spell.name} (${spell.key.toUpperCase()}).`);
+      }
+
+      const weaponIndex = state.weaponDrops.findIndex((w) => w.x === nx && w.y === ny);
+      if (weaponIndex !== -1) {
+        const weapon = state.weaponDrops.splice(weaponIndex, 1)[0].weapon;
+        equipWeapon(weapon);
       }
 
       if (state.stairs.x === nx && state.stairs.y === ny) {
         if (state.bossAlive) {
           setMessage("A boss still guards this floor.");
           enemyTurn();
+          return;
+        }
+        if (state.awaitingShop) {
+          setMessage("Visit the shop first.");
           return;
         }
         if (state.floor >= maxFloor) {
@@ -587,9 +722,10 @@
           return;
         }
         state.floor += 1;
-        state.player.atk += 1;
+        state.player.baseAtk += 1;
         state.player.maxHp += 2;
         state.player.maxMana += 1;
+        recalcAttack();
         state.player.mana = Math.min(state.player.maxMana, state.player.mana + 4);
         state.player.hp = Math.min(state.player.maxHp, state.player.hp + 5);
         setMessage(`You descend to floor ${state.floor}.`);
@@ -600,12 +736,13 @@
     }
 
     function enemyTurn() {
-      if (state.over) return;
+      if (state.over || state.awaitingShop) return;
       for (const enemy of state.enemies) {
         const dist = distance(enemy, state.player);
         if (dist === 1) {
           const dmg = rnd(enemy.atk - 1, enemy.atk + 1);
           state.player.hp -= Math.max(1, dmg);
+          spawnBurst(state.player.x, state.player.y, "#ff758f", 7);
           if (state.player.hp <= 0) {
             state.player.hp = 0;
             state.over = true;
@@ -634,6 +771,70 @@
       state.player.mana = Math.min(state.player.maxMana, state.player.mana + 1);
     }
 
+    function openShop() {
+      ui.shopOverlay.classList.remove("hidden");
+      renderShop();
+    }
+
+    function closeShop() {
+      state.awaitingShop = false;
+      ui.shopOverlay.classList.add("hidden");
+      setMessage("You leave the shop and continue onward.");
+    }
+
+    function renderShop() {
+      ui.shopGold.textContent = `Gold: ${state.player.gold}`;
+      ui.shopChoices.innerHTML = "";
+      const offers = [
+        {
+          name: "+8 Max HP (25g)",
+          cost: 25,
+          buy: () => { state.player.maxHp += 8; state.player.hp = Math.min(state.player.maxHp, state.player.hp + 8); }
+        },
+        {
+          name: "+3 Max MP (22g)",
+          cost: 22,
+          buy: () => { state.player.maxMana += 3; state.player.mana = state.player.maxMana; }
+        },
+        {
+          name: "Weapon Crate (30g)",
+          cost: 30,
+          buy: () => equipWeapon(pick(WEAPON_POOL))
+        },
+        {
+          name: "Random Relic (28g)",
+          cost: 28,
+          buy: () => { if (state.player.inventory.length < 6) state.player.inventory.push(makeRelic(state.floor)); }
+        },
+        {
+          name: "Spell Scroll (26g)",
+          cost: 26,
+          buy: () => {
+            const unknown = SPELL_LIBRARY.filter((spell) => !state.player.knownSpells.has(spell.id));
+            if (unknown.length) state.player.knownSpells.add(pick(unknown).id);
+          }
+        }
+      ];
+
+      for (const offer of offers) {
+        const btn = document.createElement("button");
+        btn.className = "choice";
+        btn.innerHTML = `<strong>${offer.name}</strong><span>Spend gold for upgrades.</span>`;
+        btn.addEventListener("click", () => {
+          if (state.player.gold < offer.cost) {
+            setMessage("Not enough gold.");
+            return;
+          }
+          state.player.gold -= offer.cost;
+          offer.buy();
+          recalcAttack();
+          renderShop();
+          setMessage(`Purchased ${offer.name}.`);
+        });
+        ui.shopChoices.appendChild(btn);
+      }
+    }
+
     function drawTile(x, y, color) {
       ctx.fillStyle = color;
       ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
@@ -642,50 +843,65 @@
     function drawHero(x, y) {
       const px = x * tileSize;
       const py = y * tileSize;
-      ctx.fillStyle = "#4ea8ff";
-      ctx.fillRect(px + 9, py + 5, 6, 6);
-      ctx.fillStyle = "#e5c19c";
-      ctx.fillRect(px + 9, py + 2, 6, 4);
-      ctx.fillStyle = "#8ce0ff";
+      ctx.fillStyle = "#2b2d42";
+      ctx.fillRect(px + 8, py + 3, 8, 3);
+      ctx.fillStyle = "#f1c27d";
+      ctx.fillRect(px + 9, py + 6, 6, 5);
+      ctx.fillStyle = "#355c7d";
       ctx.fillRect(px + 8, py + 11, 8, 8);
-      ctx.fillStyle = "#a2f58f";
-      ctx.fillRect(px + 6, py + 13, 3, 6);
-      ctx.fillRect(px + 15, py + 13, 3, 6);
+      ctx.fillStyle = "#6c8f3d";
+      ctx.fillRect(px + 7, py + 13, 2, 6);
+      ctx.fillRect(px + 16, py + 13, 2, 6);
+      ctx.fillStyle = "#c9c9d4";
+      ctx.fillRect(px + 15, py + 12, 4, 2);
     }
 
     function drawEnemy(enemy) {
       const px = enemy.x * tileSize;
       const py = enemy.y * tileSize;
       if (enemy.type === "slime") {
-        ctx.fillStyle = "#52e86b";
+        ctx.fillStyle = "#4bc35f";
         ctx.fillRect(px + 5, py + 12, 14, 8);
-        ctx.fillRect(px + 7, py + 9, 10, 4);
+        ctx.fillStyle = "#8ff59a";
+        ctx.fillRect(px + 7, py + 10, 10, 3);
       } else if (enemy.type === "goblin") {
-        ctx.fillStyle = "#7dbd5b";
-        ctx.fillRect(px + 8, py + 6, 8, 10);
-        ctx.fillRect(px + 6, py + 9, 3, 7);
-        ctx.fillRect(px + 15, py + 9, 3, 7);
-        ctx.fillStyle = "#d2aa7a";
-        ctx.fillRect(px + 9, py + 3, 6, 4);
+        ctx.fillStyle = "#5a8f3d";
+        ctx.fillRect(px + 8, py + 7, 8, 11);
+        ctx.fillStyle = "#b48a5a";
+        ctx.fillRect(px + 9, py + 4, 6, 4);
       } else if (enemy.type === "bat") {
-        ctx.fillStyle = "#9981ff";
-        ctx.fillRect(px + 5, py + 10, 4, 4);
+        ctx.fillStyle = "#7a61cc";
+        ctx.fillRect(px + 4, py + 10, 5, 4);
         ctx.fillRect(px + 9, py + 8, 6, 6);
-        ctx.fillRect(px + 15, py + 10, 4, 4);
+        ctx.fillRect(px + 15, py + 10, 5, 4);
       } else if (enemy.type === "skeleton") {
-        ctx.fillStyle = "#f1f1f1";
+        ctx.fillStyle = "#e7e7e7";
         ctx.fillRect(px + 9, py + 3, 6, 5);
-        ctx.fillRect(px + 8, py + 9, 8, 8);
+        ctx.fillRect(px + 8, py + 9, 8, 9);
       } else if (enemy.type === "imp") {
-        ctx.fillStyle = "#ff9b6e";
-        ctx.fillRect(px + 8, py + 6, 8, 10);
-        ctx.fillStyle = "#ff6f4c";
-        ctx.fillRect(px + 6, py + 6, 2, 4);
-        ctx.fillRect(px + 16, py + 6, 2, 4);
+        ctx.fillStyle = "#e4734f";
+        ctx.fillRect(px + 8, py + 7, 8, 10);
+        ctx.fillStyle = "#ff4c4c";
+        ctx.fillRect(px + 6, py + 5, 2, 4);
+        ctx.fillRect(px + 16, py + 5, 2, 4);
+      } else if (enemy.type === "wolf") {
+        ctx.fillStyle = "#8d8d99";
+        ctx.fillRect(px + 5, py + 10, 14, 6);
+        ctx.fillRect(px + 14, py + 7, 5, 4);
+      } else if (enemy.type === "orc") {
+        ctx.fillStyle = "#4f7a32";
+        ctx.fillRect(px + 7, py + 6, 10, 12);
+        ctx.fillStyle = "#c89a6d";
+        ctx.fillRect(px + 9, py + 3, 6, 4);
+      } else if (enemy.type === "wraith") {
+        ctx.fillStyle = "#9bc4ff";
+        ctx.fillRect(px + 8, py + 5, 8, 12);
+        ctx.fillStyle = "#e8f2ff";
+        ctx.fillRect(px + 10, py + 3, 4, 3);
       } else {
-        ctx.fillStyle = "#ff5dc1";
+        ctx.fillStyle = "#8b173f";
         ctx.fillRect(px + 6, py + 5, 12, 14);
-        ctx.fillStyle = "#ffd2ec";
+        ctx.fillStyle = "#f2d9d9";
         ctx.fillRect(px + 9, py + 2, 6, 4);
       }
     }
@@ -693,15 +909,44 @@
     function drawPortrait() {
       portrait.fillStyle = "#101028";
       portrait.fillRect(0, 0, 16, 16);
-      portrait.fillStyle = "#4ea8ff";
-      portrait.fillRect(6, 5, 4, 4);
-      portrait.fillStyle = "#e5c19c";
-      portrait.fillRect(6, 3, 4, 2);
-      portrait.fillStyle = "#8ce0ff";
-      portrait.fillRect(5, 9, 6, 5);
-      portrait.fillStyle = "#a2f58f";
+      portrait.fillStyle = "#2b2d42";
+      portrait.fillRect(6, 2, 4, 2);
+      portrait.fillStyle = "#f1c27d";
+      portrait.fillRect(6, 4, 4, 4);
+      portrait.fillStyle = "#355c7d";
+      portrait.fillRect(5, 8, 6, 6);
+      portrait.fillStyle = "#6c8f3d";
       portrait.fillRect(4, 10, 1, 3);
       portrait.fillRect(11, 10, 1, 3);
+    }
+
+    function drawParticles() {
+      for (const p of state.particles) {
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, 2, 2);
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life -= 1;
+      }
+      state.particles = state.particles.filter((p) => p.life > 0);
+    }
+
+    function updateUi() {
+      ui.className.textContent = state.player.className || "-";
+      ui.weapon.textContent = state.player.weapon || "-";
+      ui.hp.textContent = `${state.player.hp}/${state.player.maxHp}`;
+      ui.mana.textContent = `${state.player.mana}/${state.player.maxMana}`;
+      ui.atk.textContent = `${state.player.atk} (+${state.player.spellPower} spell)`;
+      ui.floor.textContent = state.floor;
+      ui.gold.textContent = state.player.gold;
+      ui.enemies.textContent = state.enemies.length;
+      ui.bossStatus.textContent = state.bossAlive ? "Alive" : "Cleared";
+      ui.inventory.innerHTML = state.player.inventory.length
+        ? `Relics: ${state.player.inventory.map((item, i) => `[${i + 1}] ${item.name} — ${item.desc}`).join("<br>")}`
+        : "Relics: empty. Find magenta drops.";
+      const known = SPELL_LIBRARY.filter((spell) => state.player.knownSpells.has(spell.id));
+      ui.spells.innerHTML = `Known spells: ${known.map((sp) => `[${sp.key.toUpperCase()}] ${sp.name} (${sp.cost} MP)`).join(" · ")}`;
+      drawPortrait();
     }
 
     function draw() {
@@ -709,7 +954,7 @@
 
       for (let y = 0; y < rows; y++) {
         for (let x = 0; x < cols; x++) {
-          if (state.map[y][x] === 1) drawTile(x, y, COLORS.wall);
+          if (state.map.length && state.map[y][x] === 1) drawTile(x, y, COLORS.wall);
           else drawTile(x, y, (x + y) % 2 ? COLORS.floor : COLORS.floorShade);
         }
       }
@@ -717,9 +962,13 @@
       for (const c of state.coins) drawTile(c.x, c.y, COLORS.coin);
       for (const p of state.potions) drawTile(p.x, p.y, COLORS.potion);
       for (const relic of state.relicDrops) drawTile(relic.x, relic.y, COLORS.relic);
-      drawTile(state.stairs.x, state.stairs.y, COLORS.stairs);
+      for (const scroll of state.spellDrops) drawTile(scroll.x, scroll.y, COLORS.spell);
+      for (const weapon of state.weaponDrops) drawTile(weapon.x, weapon.y, COLORS.weapon);
+      if (state.stairs) drawTile(state.stairs.x, state.stairs.y, COLORS.stairs);
+
       for (const enemy of state.enemies) drawEnemy(enemy);
       drawHero(state.player.x, state.player.y);
+      drawParticles();
 
       for (let y = 0; y < rows; y++) {
         for (let x = 0; x < cols; x++) {
@@ -731,19 +980,6 @@
         }
       }
 
-      ui.hp.textContent = `${state.player.hp}/${state.player.maxHp}`;
-      ui.mana.textContent = `${state.player.mana}/${state.player.maxMana}`;
-      ui.atk.textContent = `${state.player.atk} (+${state.player.spellPower} spell)`;
-      ui.floor.textContent = state.floor;
-      ui.gold.textContent = state.player.gold;
-      ui.enemies.textContent = state.enemies.length;
-      ui.bossStatus.textContent = state.bossAlive ? "Alive" : "Cleared";
-      ui.inventory.innerHTML = state.player.inventory.length
-        ? `Inventory: ${state.player.inventory.map((item, i) => `[${i + 1}] ${item.name} — ${item.desc}`).join("<br>")}`
-        : "Inventory: empty. Find glowing relic tiles.";
-
-      drawPortrait();
-
       if (state.over) {
         ctx.fillStyle = COLORS.shadow;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -753,35 +989,59 @@
         ctx.font = "14px Courier New";
         ctx.fillText(state.won ? "You survived all 100 floors!" : "Refresh page to restart", canvas.width / 2 - 110, canvas.height / 2 + 18);
       }
+
+      updateUi();
     }
 
-    function loop() {
-      draw();
-      requestAnimationFrame(loop);
+    function loop() { draw(); requestAnimationFrame(loop); }
+
+    function chooseClass(c) {
+      state.player.className = c.name;
+      state.player.weapon = c.weapon;
+      state.player.weaponBonus = 1;
+      state.player.maxHp = c.hp;
+      state.player.hp = c.hp;
+      state.player.maxMana = c.mana;
+      state.player.mana = c.mana;
+      state.player.baseAtk = c.atk;
+      state.player.spellPower = c.spellPower;
+      recalcAttack();
+      state.started = true;
+      buildFloor();
+      ui.classOverlay.classList.add("hidden");
+      setMessage(`You begin as a ${c.name}.`);
+    }
+
+    function renderClassChoices() {
+      ui.classChoices.innerHTML = "";
+      for (const c of CLASS_OPTIONS) {
+        const btn = document.createElement("button");
+        btn.className = "choice";
+        btn.innerHTML = `<strong>${c.name}</strong><span>HP ${c.hp}, MP ${c.mana}, ATK ${c.atk}, Weapon ${c.weapon}</span>`;
+        btn.addEventListener("click", () => chooseClass(c));
+        ui.classChoices.appendChild(btn);
+      }
     }
 
     window.addEventListener("keydown", (e) => {
       const k = e.key.toLowerCase();
-      if (["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d", " ", "z", "x", "c", "1", "2", "3", "4", "5", "6"].includes(k)) {
-        e.preventDefault();
-      }
-
+      if (["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d", " ", "z", "x", "c", "v", "1", "2", "3", "4", "5", "6"].includes(k)) e.preventDefault();
       if (k === "arrowup" || k === "w") tryMove(0, -1);
       if (k === "arrowdown" || k === "s") tryMove(0, 1);
       if (k === "arrowleft" || k === "a") tryMove(-1, 0);
       if (k === "arrowright" || k === "d") tryMove(1, 0);
-      if (k === "z") castSpell("bolt");
-      if (k === "x") castSpell("nova");
-      if (k === "c") castSpell("mend");
+      if (["z", "x", "c", "v"].includes(k)) castBoundSpell(k);
       if (["1", "2", "3", "4", "5", "6"].includes(k)) useRelic(Number(k) - 1);
-      if (k === " ") {
+      if (k === " " && state.started && !state.awaitingShop) {
         setMessage("You wait and gather focus.");
         enemyTurn();
       }
     });
 
-    buildFloor();
-    setMessage("Find relics, cast spells, and survive 100 floors.");
+    ui.leaveShop.addEventListener("click", closeShop);
+
+    renderClassChoices();
+    setMessage("Choose your class to start the run.");
     loop();
   </script>
 </body>
