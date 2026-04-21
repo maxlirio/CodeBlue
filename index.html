@@ -164,19 +164,6 @@
       <div id="shopChoices" class="choice-grid"></div>
       <button class="choice" id="leaveShop">Continue Descent</button>
     </div>
-    <div id="backpackOverlay" class="overlay hidden">
-      <h2>Backpack Loadout</h2>
-      <p>Choose weapon/loadout (press B to close)</p>
-      <div id="backpackChoices" class="choice-grid"></div>
-    </div>
-    <div id="bossOverlay" class="overlay hidden">
-      <h2 id="bossTitle">Boss Arena</h2>
-      <canvas id="bossCanvas" width="96" height="96" style="width:160px;height:160px;border:1px solid #6663b6;background:#101028;"></canvas>
-      <div id="bossState" class="inventory"></div>
-      <input id="bossInput" class="choice" placeholder="Describe your move..." />
-      <button id="bossSubmit" class="choice">Submit Action</button>
-      <div id="bossLog" class="inventory">Describe your attack to start the battle.</div>
-    </div>
   </div>
 
   <section class="hud" aria-live="polite">
@@ -230,16 +217,7 @@
       shopOverlay: document.getElementById("shopOverlay"),
       shopGold: document.getElementById("shopGold"),
       shopChoices: document.getElementById("shopChoices"),
-      leaveShop: document.getElementById("leaveShop"),
-      backpackOverlay: document.getElementById("backpackOverlay"),
-      backpackChoices: document.getElementById("backpackChoices"),
-      bossOverlay: document.getElementById("bossOverlay"),
-      bossTitle: document.getElementById("bossTitle"),
-      bossCanvas: document.getElementById("bossCanvas"),
-      bossState: document.getElementById("bossState"),
-      bossInput: document.getElementById("bossInput"),
-      bossSubmit: document.getElementById("bossSubmit"),
-      bossLog: document.getElementById("bossLog")
+      leaveShop: document.getElementById("leaveShop")
     };
 
     const COLORS = {
@@ -352,8 +330,6 @@
       mouseTile: null,
       aimMode: null,
       aiEnabled: false,
-      backpackOpen: false,
-      bossBattle: null,
       player: {
         className: "",
         weapon: "",
@@ -369,7 +345,6 @@
         gold: 0,
         arrows: 10,
         inventory: [],
-        backpack: [],
         knownSpells: new Set(["bolt", "nova", "mend"]) // chain found via scroll
       },
       runSeedWords: makeRunNameParts(),
@@ -496,7 +471,10 @@
       const enemyCount = 8 + Math.floor(state.floor * 2.1);
       for (let i = 0; i < enemyCount; i++) placeEnemy(occupied, false);
 
-      if (state.floor % 5 === 0) state.bossAlive = true;
+      if (state.floor % 5 === 0) {
+        placeEnemy(occupied, true);
+        state.bossAlive = true;
+      }
 
       for (let i = 0; i < 7 + Math.floor(state.floor * 1.2); i++) placePickup(state.coins, occupied);
       for (let i = 0; i < Math.max(2, Math.floor(state.floor / 3)); i++) placePickup(state.potions, occupied);
@@ -506,7 +484,6 @@
         const unknown = SPELL_LIBRARY.filter((spell) => !state.player.knownSpells.has(spell.id));
         if (unknown.length) placePickup(state.spellDrops, occupied, { spell: pick(unknown) });
       }
-      if (state.bossAlive) startBossBattle();
     }
 
     function placePickup(bucket, occupied, extra = {}) {
@@ -589,55 +566,6 @@
       }
     }
 
-    function levelManaPool(level) {
-      return 10 + Math.floor(level * 1.5);
-    }
-
-    function rollHit(baseDamage) {
-      const r = Math.random();
-      if (r < 0.12) return { type: "miss", damage: 0 };
-      if (r > 0.9) return { type: "crit", damage: Math.floor(baseDamage * 1.8) };
-      return { type: "hit", damage: baseDamage };
-    }
-
-    function fallbackLoot(theme = "wild") {
-      const names = ["Storm", "Rune", "Iron", "Moon", "Grave", "Ember"];
-      const bases = ["Bow", "Mace", "Glaive", "Sword", "Axe", "Wand"];
-      const base = pick(bases);
-      return {
-        name: `${pick(names)} ${base}`,
-        atk: rnd(2, 6),
-        mana: rnd(-1, 3),
-        type: base.toLowerCase(),
-        effectiveAgainst: pick(["slime", "goblin", "skeleton", "orc", theme]),
-        animation: pick(["arc slash", "spark burst", "piercing line", "hammer shock"]),
-        damageMode: pick(["bleed", "burst", "pierce"])
-      };
-    }
-
-    async function generateAiLoot(theme = "enemy") {
-      const apiKey = localStorage.getItem("pixelRogueOpenAIKey");
-      if (!state.aiEnabled || !apiKey) return fallbackLoot(theme);
-      try {
-        const response = await fetch("https://api.openai.com/v1/responses", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({
-            model: "gpt-4.1-mini",
-            input: `Return JSON only with keys name,atk,mana,type,effectiveAgainst,animation,damageMode. Make one fantasy weapon good against ${theme}. atk integer 1-7, mana integer -2..4.`,
-            max_output_tokens: 140
-          })
-        });
-        if (!response.ok) throw new Error("loot failed");
-        const text = (await response.json()).output_text || "";
-        const loot = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] || "{}");
-        if (!loot.name || typeof loot.atk !== "number") throw new Error("bad loot");
-        return loot;
-      } catch {
-        return fallbackLoot(theme);
-      }
-    }
-
     function spawnBurst(x, y, color, count = 10) {
       for (let i = 0; i < count; i++) {
         state.particles.push({
@@ -689,12 +617,9 @@
     }
 
     function playerAttack(enemy) {
-      const rolled = rollHit(rnd(state.player.atk - 1, state.player.atk + 3));
-      const dmg = rolled.damage;
-      enemy.hp -= Math.max(0, dmg);
+      const dmg = rnd(state.player.atk - 1, state.player.atk + 3);
+      enemy.hp -= Math.max(1, dmg);
       spawnBurst(enemy.x, enemy.y, "#ff758f", 9);
-      if (rolled.type === "miss") setMessage("You miss!");
-      if (rolled.type === "crit") setMessage(`Critical hit! ${dmg} damage.`);
       if (enemy.hp <= 0) {
         state.player.gold += enemy.boss ? rnd(18, 30) : rnd(3, 8);
         if (enemy.boss) {
@@ -710,7 +635,7 @@
         setMessage(`You defeat a ${enemy.type}.`);
         narrateCombat(`You dropped a ${enemy.type} with a clean finishing blow.`);
       } else {
-        if (rolled.type !== "miss") setMessage(`You hit ${enemy.name} for ${dmg}.`);
+        setMessage(`You hit ${enemy.name} for ${dmg}.`);
         narrateCombat(`You carve into ${enemy.name} for ${dmg} damage.`);
       }
     }
@@ -758,8 +683,7 @@
         const enemy = enemyAt(tile.x, tile.y);
         if (enemy) {
           state.player.arrows -= 1;
-          const rolled = rollHit(rnd(state.player.atk + 1, state.player.atk + 4));
-          const dmg = rolled.damage;
+          const dmg = rnd(state.player.atk + 1, state.player.atk + 4);
           enemy.hp -= dmg;
           spawnBeam(state.player.x, state.player.y, tile.x, tile.y, "#ffd166");
           setMessage(`Arrow hits ${enemy.name} for ${dmg}.`);
@@ -798,7 +722,7 @@
     }
 
     function useRelic(index) {
-      if (state.awaitingShop || state.bossBattle) return;
+      if (state.awaitingShop) return;
       const relic = state.player.inventory[index];
       if (!relic) return;
       relic.use();
@@ -814,27 +738,10 @@
       state.player.mana = Math.min(state.player.mana, state.player.maxMana);
       recalcAttack();
       setMessage(`Equipped ${weapon.name}.`);
-      if (!state.player.backpack.find((w) => w.name === weapon.name)) state.player.backpack.push(weapon);
-    }
-
-    function renderBackpack() {
-      ui.backpackChoices.innerHTML = "";
-      const items = state.player.backpack.length ? state.player.backpack : [fallbackLoot("starter")];
-      for (const item of items) {
-        const btn = document.createElement("button");
-        btn.className = "choice";
-        btn.innerHTML = `<strong>${item.name}</strong><span>${item.type} · ATK +${item.atk} · Mana ${item.mana} · Good vs ${item.effectiveAgainst || "any"}</span>`;
-        btn.addEventListener("click", () => {
-          equipWeapon(item);
-          ui.backpackOverlay.classList.add("hidden");
-          state.backpackOpen = false;
-        });
-        ui.backpackChoices.appendChild(btn);
-      }
     }
 
     function tryMove(dx, dy) {
-      if (state.over || !state.started || state.awaitingShop || state.bossBattle) return;
+      if (state.over || !state.started || state.awaitingShop) return;
       const nx = state.player.x + dx;
       const ny = state.player.y + dy;
       if (!isWalkable(nx, ny)) {
@@ -891,11 +798,7 @@
       const weaponIndex = state.weaponDrops.findIndex((w) => w.x === nx && w.y === ny);
       if (weaponIndex !== -1) {
         const weapon = state.weaponDrops.splice(weaponIndex, 1)[0].weapon;
-        generateAiLoot(weapon.type || "enemy").then((aiWeapon) => {
-          const merged = { ...weapon, ...aiWeapon, type: (aiWeapon.type || weapon.type || "sword").toLowerCase() };
-          equipWeapon(merged);
-          narrateCombat(`You found ${merged.name}, a ${merged.animation || "mystic"} weapon.`);
-        });
+        equipWeapon(weapon);
       }
 
       if (state.stairs.x === nx && state.stairs.y === ny) {
@@ -917,9 +820,9 @@
         state.floor += 1;
         state.player.baseAtk += 1;
         state.player.maxHp += 2;
-        state.player.maxMana = levelManaPool(state.floor);
+        state.player.maxMana += 1;
         recalcAttack();
-        state.player.mana = state.player.maxMana;
+        state.player.mana = Math.min(state.player.maxMana, state.player.mana + 4);
         state.player.hp = Math.min(state.player.maxHp, state.player.hp + 5);
         setMessage(`You descend to floor ${state.floor}.`);
         buildFloor();
@@ -929,7 +832,7 @@
     }
 
     function enemyTurn() {
-      if (state.over || state.awaitingShop || state.bossBattle) return;
+      if (state.over || state.awaitingShop) return;
       for (const enemy of state.enemies) {
         const dist = distance(enemy, state.player);
         if (dist === 1) {
@@ -961,7 +864,7 @@
           enemy.y = ty;
         }
       }
-      
+      state.player.mana = Math.min(state.player.maxMana, state.player.mana + 1);
     }
 
     function openShop() {
@@ -1025,88 +928,6 @@
           setMessage(`Purchased ${offer.name}.`);
         });
         ui.shopChoices.appendChild(btn);
-      }
-    }
-
-    function drawBossPortrait() {
-      const bctx = ui.bossCanvas.getContext("2d");
-      bctx.fillStyle = "#101028";
-      bctx.fillRect(0, 0, 96, 96);
-      bctx.fillStyle = "#8b173f";
-      bctx.fillRect(26, 24, 44, 52);
-      bctx.fillStyle = "#f2d9d9";
-      bctx.fillRect(38, 14, 20, 14);
-      bctx.fillStyle = "#ff5dc1";
-      bctx.fillRect(20, 50, 12, 8);
-      bctx.fillRect(64, 50, 12, 8);
-    }
-
-    function startBossBattle() {
-      state.bossBattle = {
-        name: makeBossName(),
-        hp: 55 + state.floor * 4,
-        maxHp: 55 + state.floor * 4,
-        turn: 1
-      };
-      ui.bossTitle.textContent = `Boss Battle: ${state.bossBattle.name}`;
-      ui.bossOverlay.classList.remove("hidden");
-      ui.bossLog.textContent = "Describe your move. Wild claims like 'I instantly win' will fail.";
-      ui.bossState.textContent = `You: HP ${state.player.hp}/${state.player.maxHp} | MP ${state.player.mana}/${state.player.maxMana} | Boss: ${state.bossBattle.hp}/${state.bossBattle.maxHp}`;
-      drawBossPortrait();
-    }
-
-    async function resolveBossAction(inputText) {
-      if (!state.bossBattle || !inputText.trim()) return;
-      ui.bossInput.value = "";
-      const silly = /instantly|one shot|auto win|i kill the boss/i.test(inputText);
-      const base = silly ? 0 : rnd(6, 13) + Math.floor(state.player.atk / 2);
-      const manaSpend = Math.min(state.player.mana, /spell|magic|arc|nova|bolt/i.test(inputText) ? rnd(3, 7) : 0);
-      state.player.mana -= manaSpend;
-      const roll = rollHit(base);
-      const dealt = roll.damage;
-      state.bossBattle.hp = Math.max(0, state.bossBattle.hp - dealt);
-      const bossHit = rnd(5, 10) + Math.floor(state.floor / 3);
-      state.player.hp = Math.max(0, state.player.hp - bossHit);
-
-      let narration = "";
-      const apiKey = localStorage.getItem("pixelRogueOpenAIKey");
-      if (state.aiEnabled && apiKey) {
-        try {
-          const res = await fetch("https://api.openai.com/v1/responses", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-            body: JSON.stringify({
-              model: "gpt-4.1-mini",
-              input: `You are a strict RPG referee. Reject silly impossible actions. Player move: "${inputText}". Roll=${roll.type} dealt=${dealt}. Mana spent=${manaSpend}, mana left=${state.player.mana}. Boss HP now ${state.bossBattle.hp}. Boss retaliates ${bossHit}. Reply in 2 short lines.`,
-              max_output_tokens: 120
-            })
-          });
-          if (res.ok) narration = ((await res.json()).output_text || "").trim();
-        } catch {}
-      }
-      if (!narration) {
-        narration = silly
-          ? `Referee: That claim is impossible. Your move falters.\nBoss punishes you for ${bossHit}.`
-          : `You ${roll.type === "crit" ? "land a critical" : roll.type === "miss" ? "miss badly" : "strike true"} for ${dealt}.\nBoss counters for ${bossHit}.`;
-      }
-      ui.bossLog.textContent = narration;
-      ui.bossState.textContent = `You: HP ${state.player.hp}/${state.player.maxHp} | MP ${state.player.mana}/${state.player.maxMana} | Boss: ${state.bossBattle.hp}/${state.bossBattle.maxHp}`;
-
-      if (state.player.hp <= 0) {
-        state.over = true;
-        ui.bossOverlay.classList.add("hidden");
-        setMessage("You were defeated in the boss arena.");
-        return;
-      }
-      if (state.bossBattle.hp <= 0) {
-        state.bossAlive = false;
-        state.bossBattle = null;
-        state.awaitingShop = true;
-        ui.bossOverlay.classList.add("hidden");
-        setMessage("Boss defeated in the arena!");
-        openShop();
-      } else {
-        state.bossBattle.turn += 1;
       }
     }
 
@@ -1285,12 +1106,11 @@
       state.player.weaponType = c.weapon.toLowerCase().includes("staff") ? "wand" : "sword";
       state.player.maxHp = c.hp;
       state.player.hp = c.hp;
-      state.player.maxMana = levelManaPool(state.floor) + Math.floor(c.mana / 6);
-      state.player.mana = state.player.maxMana;
+      state.player.maxMana = c.mana;
+      state.player.mana = c.mana;
       state.player.baseAtk = c.atk;
       state.player.spellPower = c.spellPower;
       state.player.arrows = 12;
-      state.player.backpack = [{ name: c.weapon, atk: 1, mana: 0, type: state.player.weaponType, effectiveAgainst: "any" }];
       recalcAttack();
       state.started = true;
       buildFloor();
@@ -1310,10 +1130,8 @@
     }
 
     window.addEventListener("keydown", (e) => {
-      if (document.activeElement === ui.bossInput && e.key !== "Escape") return;
       const k = e.key.toLowerCase();
-      if (["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d", " ", "z", "x", "c", "v", "f", "n", "b", "1", "2", "3", "4", "5", "6", "escape"].includes(k)) e.preventDefault();
-      if (state.bossBattle && k !== "escape") return;
+      if (["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d", " ", "z", "x", "c", "v", "f", "n", "1", "2", "3", "4", "5", "6", "escape"].includes(k)) e.preventDefault();
       if (k === "arrowup" || k === "w") tryMove(0, -1);
       if (k === "arrowdown" || k === "s") tryMove(0, 1);
       if (k === "arrowleft" || k === "a") tryMove(-1, 0);
@@ -1341,22 +1159,9 @@
         }
         setMessage(`AI narration ${state.aiEnabled ? "enabled" : "disabled"}.`);
       }
-      if (k === "b" && state.started && !state.bossBattle) {
-        state.backpackOpen = !state.backpackOpen;
-        if (state.backpackOpen) {
-          renderBackpack();
-          ui.backpackOverlay.classList.remove("hidden");
-        } else {
-          ui.backpackOverlay.classList.add("hidden");
-        }
-      }
-      if (k === "escape") {
-        state.aimMode = null;
-        state.backpackOpen = false;
-        ui.backpackOverlay.classList.add("hidden");
-      }
+      if (k === "escape") state.aimMode = null;
       if (["1", "2", "3", "4", "5", "6"].includes(k)) useRelic(Number(k) - 1);
-      if (k === " " && state.started && !state.awaitingShop && !state.bossBattle) {
+      if (k === " " && state.started && !state.awaitingShop) {
         setMessage("You wait and gather focus.");
         enemyTurn();
       }
@@ -1372,7 +1177,7 @@
     });
 
     canvas.addEventListener("click", () => {
-      if (!state.aimMode || !state.mouseTile || state.awaitingShop || !state.started || state.over || state.bossBattle) return;
+      if (!state.aimMode || !state.mouseTile || state.awaitingShop || !state.started || state.over) return;
       let acted = false;
       if (state.aimMode.kind === "ranged") {
         acted = rangedAttackAt(state.mouseTile.x, state.mouseTile.y);
@@ -1391,10 +1196,6 @@
     });
 
     ui.leaveShop.addEventListener("click", closeShop);
-    ui.bossSubmit.addEventListener("click", () => resolveBossAction(ui.bossInput.value));
-    ui.bossInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") resolveBossAction(ui.bossInput.value);
-    });
 
     renderClassChoices();
     setMessage("Choose your class to start the run.");
