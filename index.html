@@ -1,8 +1,6 @@
 <!DOCTYPE html>
-<html>
 <html lang="en">
 <head>
-  <title>My Site</title>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Pixel Rogue</title>
@@ -153,8 +151,6 @@
   </style>
 </head>
 <body>
-  <h1>Hello</h1>
-  <p>Your site is working.</p>
   <div class="frame">
     <canvas id="game" width="672" height="432" aria-label="Rogue-like game board"></canvas>
     <div id="classOverlay" class="overlay">
@@ -187,8 +183,9 @@
     </div>
     <div id="inventory" class="inventory"></div>
     <div id="spells" class="inventory"></div>
+    <div id="narration" class="inventory">Narration: local combat hype mode.</div>
     <div class="log" id="log"></div>
-    <div class="hint">Move: WASD / Arrows · Wait: Space · Cast: Z/X/C/V (learn more via scrolls) · Relics: 1-6.</div>
+    <div class="hint">Move: WASD / Arrows · Wait: Space · Aim spells with mouse: press Z/X/C/V then click · Ranged shot: F then click · Relics: 1-6 · AI narration toggle: N.</div>
   </section>
 
   <script>
@@ -214,6 +211,7 @@
       log: document.getElementById("log"),
       inventory: document.getElementById("inventory"),
       spells: document.getElementById("spells"),
+      narration: document.getElementById("narration"),
       classOverlay: document.getElementById("classOverlay"),
       classChoices: document.getElementById("classChoices"),
       shopOverlay: document.getElementById("shopOverlay"),
@@ -243,11 +241,13 @@
     ];
 
     const WEAPON_POOL = [
-      { name: "Wolf Fang Blade", atk: 3, mana: 0 },
-      { name: "Arcsteel Halberd", atk: 4, mana: -1 },
-      { name: "Moonlit Rapier", atk: 2, mana: 2 },
-      { name: "Runic Axe", atk: 5, mana: -2 },
-      { name: "Sapphire Wand", atk: 1, mana: 4 }
+      { name: "Recurve Bow", atk: 2, mana: 0, type: "bow" },
+      { name: "War Glaive", atk: 4, mana: -1, type: "glaive" },
+      { name: "Knight Sword", atk: 3, mana: 0, type: "sword" },
+      { name: "Spiked Mace", atk: 4, mana: -1, type: "mace" },
+      { name: "Moonlit Rapier", atk: 2, mana: 2, type: "sword" },
+      { name: "Runic Axe", atk: 5, mana: -2, type: "axe" },
+      { name: "Sapphire Wand", atk: 1, mana: 4, type: "wand" }
     ];
 
     const ENEMY_TYPES = [
@@ -327,6 +327,9 @@
       enemies: [],
       stairs: null,
       particles: [],
+      mouseTile: null,
+      aimMode: null,
+      aiEnabled: false,
       player: {
         className: "",
         weapon: "",
@@ -340,6 +343,7 @@
         baseAtk: 5,
         spellPower: 2,
         gold: 0,
+        arrows: 10,
         inventory: [],
         knownSpells: new Set(["bolt", "nova", "mend"]) // chain found via scroll
       },
@@ -406,6 +410,25 @@
     function recalcAttack() {
       const weaponBonus = state.player.weaponBonus || 0;
       state.player.atk = state.player.baseAtk + weaponBonus;
+    }
+
+    function lineTiles(x1, y1, x2, y2) {
+      const tiles = [];
+      let x = x1;
+      let y = y1;
+      const dx = Math.abs(x2 - x1);
+      const dy = Math.abs(y2 - y1);
+      const sx = x1 < x2 ? 1 : -1;
+      const sy = y1 < y2 ? 1 : -1;
+      let err = dx - dy;
+      while (true) {
+        tiles.push({ x, y });
+        if (x === x2 && y === y2) break;
+        const e2 = 2 * err;
+        if (e2 > -dy) { err -= dy; x += sx; }
+        if (e2 < dx) { err += dx; y += sy; }
+      }
+      return tiles;
     }
 
     function buildFloor() {
@@ -512,6 +535,37 @@
     function distance(a, b) { return Math.abs(a.x - b.x) + Math.abs(a.y - b.y); }
     function setMessage(msg) { state.message = msg; ui.log.textContent = msg; }
 
+    async function narrateCombat(eventText) {
+      if (!state.aiEnabled) {
+        ui.narration.textContent = `Narration: ${eventText}`;
+        return;
+      }
+      const apiKey = localStorage.getItem("pixelRogueOpenAIKey");
+      if (!apiKey) {
+        ui.narration.textContent = "Narration: AI mode enabled, but no API key saved. Press N.";
+        return;
+      }
+      try {
+        const response = await fetch("https://api.openai.com/v1/responses", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model: "gpt-4.1-mini",
+            input: `Make this combat event a short, exciting one-liner (max 14 words): ${eventText}`,
+            max_output_tokens: 40
+          })
+        });
+        if (!response.ok) throw new Error("Narration API failed");
+        const data = await response.json();
+        ui.narration.textContent = `Narration: ${(data.output_text || eventText).trim()}`;
+      } catch {
+        ui.narration.textContent = `Narration: ${eventText}`;
+      }
+    }
+
     function spawnBurst(x, y, color, count = 10) {
       for (let i = 0; i < count; i++) {
         state.particles.push({
@@ -558,6 +612,7 @@
         state.awaitingShop = true;
         openShop();
         setMessage("The boss falls. A merchant appears.");
+        narrateCombat("The floor boss crashes down and the crowd gasps in awe.");
       }
     }
 
@@ -569,6 +624,7 @@
         state.player.gold += enemy.boss ? rnd(18, 30) : rnd(3, 8);
         if (enemy.boss) {
           setMessage(`You slay ${enemy.name}, floor boss!`);
+          narrateCombat(`Boss ${enemy.name} collapses after a brutal strike.`);
           state.bossAlive = false;
           state.awaitingShop = true;
           state.enemies = state.enemies.filter((e) => e !== enemy);
@@ -577,8 +633,10 @@
         }
         state.enemies = state.enemies.filter((e) => e !== enemy);
         setMessage(`You defeat a ${enemy.type}.`);
+        narrateCombat(`You dropped a ${enemy.type} with a clean finishing blow.`);
       } else {
         setMessage(`You hit ${enemy.name} for ${dmg}.`);
+        narrateCombat(`You carve into ${enemy.name} for ${dmg} damage.`);
       }
     }
 
@@ -593,6 +651,7 @@
       target.hp -= amount;
       spawnBeam(state.player.x, state.player.y, target.x, target.y, color);
       setMessage(`${target.name} takes ${amount} magic damage.`);
+      narrateCombat(`A spell slams ${target.name} for ${amount} crackling damage.`);
       clearDeadEnemies();
       return true;
     }
@@ -608,22 +667,58 @@
         spawnBurst(enemy.x, enemy.y, color, 8);
       }
       setMessage(`Nova hits ${nearby.length} foes.`);
+      narrateCombat(`Your nova explodes across ${nearby.length} nearby enemies.`);
       clearDeadEnemies();
       return true;
     }
 
-    function castBoundSpell(keyName) {
-      if (state.over || !state.started || state.awaitingShop) return;
-      const spell = SPELL_LIBRARY.find((sp) => sp.key === keyName && state.player.knownSpells.has(sp.id));
-      if (!spell) return;
-      if (state.player.mana < spell.cost) {
-        setMessage("Not enough mana.");
-        return;
+    function rangedAttackAt(tx, ty) {
+      if (state.player.arrows <= 0) {
+        setMessage("No arrows left.");
+        return false;
       }
-      const ok = spell.cast();
-      if (!ok) return;
-      state.player.mana -= spell.cost;
-      enemyTurn();
+      const line = lineTiles(state.player.x, state.player.y, tx, ty).slice(1);
+      for (const tile of line) {
+        if (!inBounds(tile.x, tile.y) || state.map[tile.y][tile.x] === 1) break;
+        const enemy = enemyAt(tile.x, tile.y);
+        if (enemy) {
+          state.player.arrows -= 1;
+          const dmg = rnd(state.player.atk + 1, state.player.atk + 4);
+          enemy.hp -= dmg;
+          spawnBeam(state.player.x, state.player.y, tile.x, tile.y, "#ffd166");
+          setMessage(`Arrow hits ${enemy.name} for ${dmg}.`);
+          narrateCombat(`Your arrow whistles through the dark and strikes ${enemy.name}.`);
+          clearDeadEnemies();
+          return true;
+        }
+      }
+      state.player.arrows -= 1;
+      setMessage("Your arrow misses and shatters on stone.");
+      return true;
+    }
+
+    function castSpellAt(spell, tx, ty) {
+      if (spell.id === "mend" || spell.id === "nova" || spell.id === "chain") return spell.cast();
+      const dist = Math.abs(tx - state.player.x) + Math.abs(ty - state.player.y);
+      if (dist > 8) {
+        setMessage("Target too far.");
+        return false;
+      }
+      const line = lineTiles(state.player.x, state.player.y, tx, ty).slice(1);
+      for (const tile of line) {
+        if (!inBounds(tile.x, tile.y) || state.map[tile.y][tile.x] === 1) break;
+        const enemy = enemyAt(tile.x, tile.y);
+        if (enemy) {
+          enemy.hp -= 7 + state.player.spellPower + Math.floor(state.floor / 4);
+          spawnBeam(state.player.x, state.player.y, tile.x, tile.y, "#7bdff2");
+          setMessage(`Arc Bolt hits ${enemy.name}.`);
+          narrateCombat(`Arc lightning lances forward and stuns ${enemy.name}.`);
+          clearDeadEnemies();
+          return true;
+        }
+      }
+      setMessage("Arc Bolt fizzles past your target.");
+      return false;
     }
 
     function useRelic(index) {
@@ -638,6 +733,7 @@
     function equipWeapon(weapon) {
       state.player.weapon = weapon.name;
       state.player.weaponBonus = weapon.atk;
+      state.player.weaponType = weapon.type;
       state.player.maxMana = Math.max(6, state.player.maxMana + weapon.mana);
       state.player.mana = Math.min(state.player.mana, state.player.maxMana);
       recalcAttack();
@@ -933,7 +1029,7 @@
 
     function updateUi() {
       ui.className.textContent = state.player.className || "-";
-      ui.weapon.textContent = state.player.weapon || "-";
+      ui.weapon.textContent = `${state.player.weapon || "-"} (${state.player.weaponType || "none"})`;
       ui.hp.textContent = `${state.player.hp}/${state.player.maxHp}`;
       ui.mana.textContent = `${state.player.mana}/${state.player.maxMana}`;
       ui.atk.textContent = `${state.player.atk} (+${state.player.spellPower} spell)`;
@@ -945,7 +1041,10 @@
         ? `Relics: ${state.player.inventory.map((item, i) => `[${i + 1}] ${item.name} — ${item.desc}`).join("<br>")}`
         : "Relics: empty. Find magenta drops.";
       const known = SPELL_LIBRARY.filter((spell) => state.player.knownSpells.has(spell.id));
-      ui.spells.innerHTML = `Known spells: ${known.map((sp) => `[${sp.key.toUpperCase()}] ${sp.name} (${sp.cost} MP)`).join(" · ")}`;
+      ui.spells.innerHTML = `Known spells: ${known.map((sp) => `[${sp.key.toUpperCase()}] ${sp.name} (${sp.cost} MP)`).join(" · ")} · Arrows: ${state.player.arrows}`;
+      if (state.aimMode && state.mouseTile) {
+        ui.narration.textContent = `Aim mode: ${state.aimMode.name}. Click tile ${state.mouseTile.x},${state.mouseTile.y} to fire.`;
+      }
       drawPortrait();
     }
 
@@ -969,6 +1068,11 @@
       for (const enemy of state.enemies) drawEnemy(enemy);
       drawHero(state.player.x, state.player.y);
       drawParticles();
+      if (state.aimMode && state.mouseTile) {
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(state.mouseTile.x * tileSize + 2, state.mouseTile.y * tileSize + 2, tileSize - 4, tileSize - 4);
+      }
 
       for (let y = 0; y < rows; y++) {
         for (let x = 0; x < cols; x++) {
@@ -999,12 +1103,14 @@
       state.player.className = c.name;
       state.player.weapon = c.weapon;
       state.player.weaponBonus = 1;
+      state.player.weaponType = c.weapon.toLowerCase().includes("staff") ? "wand" : "sword";
       state.player.maxHp = c.hp;
       state.player.hp = c.hp;
       state.player.maxMana = c.mana;
       state.player.mana = c.mana;
       state.player.baseAtk = c.atk;
       state.player.spellPower = c.spellPower;
+      state.player.arrows = 12;
       recalcAttack();
       state.started = true;
       buildFloor();
@@ -1025,17 +1131,68 @@
 
     window.addEventListener("keydown", (e) => {
       const k = e.key.toLowerCase();
-      if (["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d", " ", "z", "x", "c", "v", "1", "2", "3", "4", "5", "6"].includes(k)) e.preventDefault();
+      if (["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d", " ", "z", "x", "c", "v", "f", "n", "1", "2", "3", "4", "5", "6", "escape"].includes(k)) e.preventDefault();
       if (k === "arrowup" || k === "w") tryMove(0, -1);
       if (k === "arrowdown" || k === "s") tryMove(0, 1);
       if (k === "arrowleft" || k === "a") tryMove(-1, 0);
       if (k === "arrowright" || k === "d") tryMove(1, 0);
-      if (["z", "x", "c", "v"].includes(k)) castBoundSpell(k);
+      if (["z", "x", "c", "v"].includes(k)) {
+        const spell = SPELL_LIBRARY.find((sp) => sp.key === k && state.player.knownSpells.has(sp.id));
+        if (spell) {
+          state.aimMode = { kind: "spell", spell, name: spell.name };
+          setMessage(`Aiming ${spell.name}. Click a tile.`);
+        }
+      }
+      if (k === "f") {
+        if (state.player.weaponType === "bow") {
+          state.aimMode = { kind: "ranged", name: "Bow Shot" };
+          setMessage("Aiming bow shot. Click a tile.");
+        } else {
+          setMessage("Equip a bow to fire arrows.");
+        }
+      }
+      if (k === "n") {
+        state.aiEnabled = !state.aiEnabled;
+        if (state.aiEnabled && !localStorage.getItem("pixelRogueOpenAIKey")) {
+          const keyInput = prompt("Enter OpenAI API key for narration (saved in localStorage):");
+          if (keyInput) localStorage.setItem("pixelRogueOpenAIKey", keyInput.trim());
+        }
+        setMessage(`AI narration ${state.aiEnabled ? "enabled" : "disabled"}.`);
+      }
+      if (k === "escape") state.aimMode = null;
       if (["1", "2", "3", "4", "5", "6"].includes(k)) useRelic(Number(k) - 1);
       if (k === " " && state.started && !state.awaitingShop) {
         setMessage("You wait and gather focus.");
         enemyTurn();
       }
+    });
+
+    canvas.addEventListener("mousemove", (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const sx = canvas.width / rect.width;
+      const sy = canvas.height / rect.height;
+      const tx = Math.floor(((e.clientX - rect.left) * sx) / tileSize);
+      const ty = Math.floor(((e.clientY - rect.top) * sy) / tileSize);
+      if (inBounds(tx, ty)) state.mouseTile = { x: tx, y: ty };
+    });
+
+    canvas.addEventListener("click", () => {
+      if (!state.aimMode || !state.mouseTile || state.awaitingShop || !state.started || state.over) return;
+      let acted = false;
+      if (state.aimMode.kind === "ranged") {
+        acted = rangedAttackAt(state.mouseTile.x, state.mouseTile.y);
+      } else if (state.aimMode.kind === "spell") {
+        const spell = state.aimMode.spell;
+        if (state.player.mana < spell.cost) {
+          setMessage("Not enough mana.");
+          state.aimMode = null;
+          return;
+        }
+        acted = castSpellAt(spell, state.mouseTile.x, state.mouseTile.y);
+        if (acted) state.player.mana -= spell.cost;
+      }
+      state.aimMode = null;
+      if (acted) enemyTurn();
     });
 
     ui.leaveShop.addEventListener("click", closeShop);
