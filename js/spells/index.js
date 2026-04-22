@@ -2,6 +2,7 @@ import { state } from "../state.js";
 import { SCHOOL_COLORS } from "../config.js";
 import { spawnBurst, doScreenShake } from "../fx.js";
 import { setMessage } from "../utils.js";
+import { strokeReticle } from "./_draw.js";
 
 import * as bolt from "./bolt.js";
 import * as chain from "./chain.js";
@@ -21,6 +22,23 @@ const MODULES = [bolt, chain, nova, ember, meteor, frost, pull, mend, drain, tho
 export const SPELL_LIBRARY = MODULES.map((m) => m.meta);
 export const SPELL_BY_ID = Object.fromEntries(SPELL_LIBRARY.map((s) => [s.id, s]));
 const EFFECTS = Object.fromEntries(MODULES.map((m) => [m.meta.id, m.effect]));
+const MODULE_BY_ID = Object.fromEntries(MODULES.map((m) => [m.meta.id, m]));
+
+export function renderSpellAim() {
+  if (!state.aimMode || !state.mouseTile) return;
+  const spell = state.aimMode.spell;
+  const mod = spell && MODULE_BY_ID[spell.id];
+  const { x: mx, y: my } = state.mouseTile;
+  if (mod && typeof mod.drawAim === "function") {
+    mod.drawAim({ mx, my, charged: state.aimMode.charged });
+  } else {
+    strokeReticle(mx, my, state.aimMode.charged);
+  }
+}
+
+export function renderAllSpellFx() {
+  for (const m of MODULES) if (typeof m.renderFx === "function") m.renderFx();
+}
 
 export function rankOf(id) {
   return (state.player.spellRanks && state.player.spellRanks[id]) || 1;

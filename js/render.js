@@ -1,10 +1,10 @@
 import { state, canvas, ctx, portraitCtx } from "./state.js";
 import {
-  tileSize, cols, rows, COLORS, STATUS_DEFS, SCHOOL_COLORS,
+  tileSize, cols, rows, COLORS, STATUS_DEFS,
   ENEMY_TYPES, BOSS_SPRITE, HERO_SPRITE, PORTRAIT_SPRITE
 } from "./config.js";
-import { inBounds, lineTiles } from "./utils.js";
 import { updateUi } from "./ui.js";
+import { renderSpellAim, renderAllSpellFx } from "./spells/index.js";
 
 const SPRITE_BY_ENEMY = Object.fromEntries(ENEMY_TYPES.map((t) => [t.id, t.sprite]));
 
@@ -100,22 +100,6 @@ function drawPickups() {
   if (state.stairs) drawTile(state.stairs.x, state.stairs.y, COLORS.stairs);
 }
 
-function drawAimOverlay() {
-  if (!state.aimMode || !state.mouseTile) return;
-  const charged = state.aimMode.charged;
-  ctx.strokeStyle = charged ? "#ffd166" : "#ffffff";
-  ctx.lineWidth = charged ? 3 : 2;
-  ctx.strokeRect(state.mouseTile.x * tileSize + 2, state.mouseTile.y * tileSize + 2, tileSize - 4, tileSize - 4);
-  if (state.aimMode.spell && state.aimMode.spell.targeting === "line") {
-    const line = lineTiles(state.player.x, state.player.y, state.mouseTile.x, state.mouseTile.y).slice(1);
-    ctx.strokeStyle = SCHOOL_COLORS[state.aimMode.spell.school] || "#ffffff";
-    ctx.lineWidth = 1;
-    for (const t of line) {
-      if (!inBounds(t.x, t.y) || state.map[t.y][t.x] === 1) break;
-      ctx.strokeRect(t.x * tileSize + 6, t.y * tileSize + 6, tileSize - 12, tileSize - 12);
-    }
-  }
-}
 
 function drawFog() {
   for (let y = 0; y < rows; y++) {
@@ -147,9 +131,10 @@ export function draw() {
   for (const enemy of state.enemies) { drawEnemy(enemy); drawStatusMarks(enemy); }
   drawHero(state.player.x, state.player.y);
   drawStatusMarks(state.player);
+  renderAllSpellFx();
   drawParticles();
 
-  drawAimOverlay();
+  renderSpellAim();
   drawFog();
 
   ctx.restore();
