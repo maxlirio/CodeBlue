@@ -15,39 +15,42 @@ function randomRoomTile() {
   };
 }
 
+// apply(floorLevel) mutates state; makeRelic binds the current floor at drop time
+const RELIC_EFFECTS = [
+  { desc: "Meteor nearest foe", apply(floorLevel) {
+      damageNearestEnemy(8 + floorLevel + state.player.spellPower, "#f9a03f");
+    } },
+  { desc: "+8 max HP and heal", apply() {
+      state.player.maxHp += 8;
+      state.player.hp = Math.min(state.player.maxHp, state.player.hp + 8);
+      setMessage("Your life force surges.");
+    } },
+  { desc: "Full mana +2 max mana", apply() {
+      state.player.maxMana += 2;
+      state.player.mana = state.player.maxMana;
+      setMessage("Mana channels open.");
+    } },
+  { desc: "+2 permanent attack", apply() {
+      state.player.baseAtk += 2;
+      recalcAttack();
+      setMessage("Your strikes grow deadlier.");
+    } },
+  { desc: "Blink and shock adjacent", apply(floorLevel) {
+      const pos = randomRoomTile();
+      state.player.x = pos.x;
+      state.player.y = pos.y;
+      damageAdjacentEnemies(7 + Math.floor(floorLevel / 2), "#b388ff");
+      setMessage("You blink through reality.");
+    } }
+];
+
 export function makeRelic(floorLevel) {
-  const effects = [
-    { desc: "Meteor nearest foe",
-      apply: () => damageNearestEnemy(8 + floorLevel + state.player.spellPower, "#f9a03f") },
-    { desc: "+8 max HP and heal",
-      apply: () => {
-        state.player.maxHp += 8;
-        state.player.hp = Math.min(state.player.maxHp, state.player.hp + 8);
-        setMessage("Your life force surges.");
-      } },
-    { desc: "Full mana +2 max mana",
-      apply: () => {
-        state.player.maxMana += 2;
-        state.player.mana = state.player.maxMana;
-        setMessage("Mana channels open.");
-      } },
-    { desc: "+2 permanent attack",
-      apply: () => {
-        state.player.baseAtk += 2;
-        recalcAttack();
-        setMessage("Your strikes grow deadlier.");
-      } },
-    { desc: "Blink and shock adjacent",
-      apply: () => {
-        const pos = randomRoomTile();
-        state.player.x = pos.x;
-        state.player.y = pos.y;
-        damageAdjacentEnemies(7 + Math.floor(floorLevel / 2), "#b388ff");
-        setMessage("You blink through reality.");
-      } }
-  ];
-  const effect = pick(effects);
-  return { name: makeRelicName(), desc: effect.desc, use: effect.apply };
+  const effect = pick(RELIC_EFFECTS);
+  return {
+    name: makeRelicName(),
+    desc: effect.desc,
+    use: () => effect.apply(floorLevel)
+  };
 }
 
 export function recalcAttack() {

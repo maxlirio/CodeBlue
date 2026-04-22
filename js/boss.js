@@ -1,7 +1,9 @@
 import { state, ui } from "./state.js";
+import { BOSS_PORTRAIT_SPRITE } from "./config.js";
 import { rnd, pick, setMessage } from "./utils.js";
 import { rollHit } from "./combat.js";
 import { openShop } from "./shop.js";
+import { drawSprite } from "./render.js";
 
 export function makeBossName() {
   const first = ["Gore", "Night", "Bone", "Murk", "Rot", "Hex", "Dread", "Iron", "Blight", "Ash"];
@@ -10,16 +12,7 @@ export function makeBossName() {
 }
 
 function drawBossPortrait() {
-  const bctx = ui.bossCanvas.getContext("2d");
-  bctx.fillStyle = "#101028";
-  bctx.fillRect(0, 0, 96, 96);
-  bctx.fillStyle = "#8b173f";
-  bctx.fillRect(26, 24, 44, 52);
-  bctx.fillStyle = "#f2d9d9";
-  bctx.fillRect(38, 14, 20, 14);
-  bctx.fillStyle = "#ff5dc1";
-  bctx.fillRect(20, 50, 12, 8);
-  bctx.fillRect(64, 50, 12, 8);
+  drawSprite(ui.bossCanvas.getContext("2d"), BOSS_PORTRAIT_SPRITE, 0, 0);
 }
 
 function renderBossState() {

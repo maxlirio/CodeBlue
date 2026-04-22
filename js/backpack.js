@@ -1,7 +1,7 @@
 import { state, ui } from "./state.js";
-import { SPELL_LIBRARY, SCHOOL_COLORS } from "./config.js";
+import { SCHOOL_COLORS } from "./config.js";
 import { equipWeapon, fallbackLoot } from "./items.js";
-import { rankOf } from "./spells.js";
+import { SPELL_LIBRARY, rankOf } from "./spells/index.js";
 
 function sectionHeader(text, marginTop = "") {
   const h = document.createElement("div");

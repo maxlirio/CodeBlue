@@ -1,6 +1,6 @@
 import { state, ui } from "./state.js";
-import { CLASS_OPTIONS, SPELL_BY_ID, SCHOOL_COLORS, STATUS_DEFS } from "./config.js";
-import { rankOf } from "./spells.js";
+import { CLASS_OPTIONS, SCHOOL_COLORS, STATUS_DEFS } from "./config.js";
+import { SPELL_BY_ID, rankOf } from "./spells/index.js";
 import { drawPortrait } from "./render.js";
 import { chooseClass } from "./turn.js";
 

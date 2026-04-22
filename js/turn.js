@@ -9,7 +9,7 @@ import {
   playerAttack, clearDeadEnemies,
   tickStatuses, tickFloorEffects, triggerMine
 } from "./combat.js";
-import { rankOf } from "./spells.js";
+import { rankOf } from "./spells/index.js";
 import { equipWeapon, recalcAttack, generateAiLoot } from "./items.js";
 import { narrateCombat } from "./ai.js";
 import { buildFloor } from "./map.js";

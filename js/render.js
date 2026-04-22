@@ -1,7 +1,19 @@
 import { state, canvas, ctx, portraitCtx } from "./state.js";
-import { tileSize, cols, rows, COLORS, STATUS_DEFS, SCHOOL_COLORS } from "./config.js";
+import {
+  tileSize, cols, rows, COLORS, STATUS_DEFS, SCHOOL_COLORS,
+  ENEMY_TYPES, BOSS_SPRITE, HERO_SPRITE, PORTRAIT_SPRITE
+} from "./config.js";
 import { inBounds, lineTiles } from "./utils.js";
 import { updateUi } from "./ui.js";
+
+const SPRITE_BY_ENEMY = Object.fromEntries(ENEMY_TYPES.map((t) => [t.id, t.sprite]));
+
+export function drawSprite(targetCtx, sprite, px, py) {
+  for (const [color, x, y, w, h] of sprite) {
+    targetCtx.fillStyle = color;
+    targetCtx.fillRect(px + x, py + y, w, h);
+  }
+}
 
 function drawTile(x, y, color) {
   ctx.fillStyle = color;
@@ -9,67 +21,16 @@ function drawTile(x, y, color) {
 }
 
 function drawHero(x, y) {
-  const px = x * tileSize;
-  const py = y * tileSize;
-  ctx.fillStyle = "#2b2d42"; ctx.fillRect(px + 8, py + 3, 8, 3);
-  ctx.fillStyle = "#f1c27d"; ctx.fillRect(px + 9, py + 6, 6, 5);
-  ctx.fillStyle = "#355c7d"; ctx.fillRect(px + 8, py + 11, 8, 8);
-  ctx.fillStyle = "#6c8f3d"; ctx.fillRect(px + 7, py + 13, 2, 6); ctx.fillRect(px + 16, py + 13, 2, 6);
-  ctx.fillStyle = "#c9c9d4"; ctx.fillRect(px + 15, py + 12, 4, 2);
+  drawSprite(ctx, HERO_SPRITE, x * tileSize, y * tileSize);
 }
 
 function drawEnemy(enemy) {
-  const px = enemy.x * tileSize;
-  const py = enemy.y * tileSize;
-  switch (enemy.type) {
-    case "slime":
-      ctx.fillStyle = "#4bc35f"; ctx.fillRect(px + 5, py + 12, 14, 8);
-      ctx.fillStyle = "#8ff59a"; ctx.fillRect(px + 7, py + 10, 10, 3);
-      break;
-    case "goblin":
-      ctx.fillStyle = "#5a8f3d"; ctx.fillRect(px + 8, py + 7, 8, 11);
-      ctx.fillStyle = "#b48a5a"; ctx.fillRect(px + 9, py + 4, 6, 4);
-      break;
-    case "bat":
-      ctx.fillStyle = "#7a61cc";
-      ctx.fillRect(px + 4, py + 10, 5, 4);
-      ctx.fillRect(px + 9, py + 8, 6, 6);
-      ctx.fillRect(px + 15, py + 10, 5, 4);
-      break;
-    case "skeleton":
-      ctx.fillStyle = "#e7e7e7";
-      ctx.fillRect(px + 9, py + 3, 6, 5);
-      ctx.fillRect(px + 8, py + 9, 8, 9);
-      break;
-    case "imp":
-      ctx.fillStyle = "#e4734f"; ctx.fillRect(px + 8, py + 7, 8, 10);
-      ctx.fillStyle = "#ff4c4c"; ctx.fillRect(px + 6, py + 5, 2, 4); ctx.fillRect(px + 16, py + 5, 2, 4);
-      break;
-    case "wolf":
-      ctx.fillStyle = "#8d8d99";
-      ctx.fillRect(px + 5, py + 10, 14, 6);
-      ctx.fillRect(px + 14, py + 7, 5, 4);
-      break;
-    case "orc":
-      ctx.fillStyle = "#4f7a32"; ctx.fillRect(px + 7, py + 6, 10, 12);
-      ctx.fillStyle = "#c89a6d"; ctx.fillRect(px + 9, py + 3, 6, 4);
-      break;
-    case "wraith":
-      ctx.fillStyle = "#9bc4ff"; ctx.fillRect(px + 8, py + 5, 8, 12);
-      ctx.fillStyle = "#e8f2ff"; ctx.fillRect(px + 10, py + 3, 4, 3);
-      break;
-    default:
-      ctx.fillStyle = "#8b173f"; ctx.fillRect(px + 6, py + 5, 12, 14);
-      ctx.fillStyle = "#f2d9d9"; ctx.fillRect(px + 9, py + 2, 6, 4);
-  }
+  const sprite = SPRITE_BY_ENEMY[enemy.type] || BOSS_SPRITE;
+  drawSprite(ctx, sprite, enemy.x * tileSize, enemy.y * tileSize);
 }
 
 export function drawPortrait() {
-  portraitCtx.fillStyle = "#101028"; portraitCtx.fillRect(0, 0, 16, 16);
-  portraitCtx.fillStyle = "#2b2d42"; portraitCtx.fillRect(6, 2, 4, 2);
-  portraitCtx.fillStyle = "#f1c27d"; portraitCtx.fillRect(6, 4, 4, 4);
-  portraitCtx.fillStyle = "#355c7d"; portraitCtx.fillRect(5, 8, 6, 6);
-  portraitCtx.fillStyle = "#6c8f3d"; portraitCtx.fillRect(4, 10, 1, 3); portraitCtx.fillRect(11, 10, 1, 3);
+  drawSprite(portraitCtx, PORTRAIT_SPRITE, 0, 0);
 }
 
 function drawParticles() {

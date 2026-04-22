@@ -1,8 +1,8 @@
-import { cols, rows, ENEMY_TYPES, WEAPON_POOL, SPELL_LIBRARY } from "./config.js";
+import { cols, rows, ENEMY_TYPES, WEAPON_POOL } from "./config.js";
 import { state } from "./state.js";
 import { rnd, pick, key } from "./utils.js";
 import { makeRelic } from "./items.js";
-import { rankOf } from "./spells.js";
+import { SPELL_LIBRARY, rankOf } from "./spells/index.js";
 import { startBossBattle, makeBossName } from "./boss.js";
 
 function carveRoom(room) {

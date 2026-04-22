@@ -33,18 +33,53 @@ export const WEAPON_POOL = [
   { name: "Sapphire Wand",   atk: 1, mana:  4, type: "wand" }
 ];
 
+// sprite: array of [color, dx, dy, w, h] rects drawn within a tile
 export const ENEMY_TYPES = [
-  { id: "slime",    hp: 7,  atk: 2, vision: 7,  weak: ["fire"],               resist: ["frost"] },
-  { id: "goblin",   hp: 9,  atk: 3, vision: 8,  weak: ["life"],               resist: [] },
-  { id: "bat",      hp: 6,  atk: 3, vision: 10, weak: ["storm"],              resist: [] },
-  { id: "skeleton", hp: 10, atk: 4, vision: 8,  weak: ["storm", "life"],      resist: ["frost"] },
-  { id: "imp",      hp: 8,  atk: 5, vision: 9,  weak: ["frost"],              resist: ["fire"] },
-  { id: "wolf",     hp: 12, atk: 5, vision: 11, weak: ["fire"],               resist: [] },
-  { id: "orc",      hp: 15, atk: 6, vision: 8,  weak: ["storm"],              resist: ["fire"] },
-  { id: "wraith",   hp: 11, atk: 7, vision: 12, weak: ["life", "arcane"],     resist: ["storm", "frost"] }
+  { id: "slime",    hp: 7,  atk: 2, vision: 7,  weak: ["fire"],               resist: ["frost"],
+    sprite: [["#4bc35f", 5, 12, 14, 8], ["#8ff59a", 7, 10, 10, 3]] },
+  { id: "goblin",   hp: 9,  atk: 3, vision: 8,  weak: ["life"],               resist: [],
+    sprite: [["#5a8f3d", 8, 7, 8, 11], ["#b48a5a", 9, 4, 6, 4]] },
+  { id: "bat",      hp: 6,  atk: 3, vision: 10, weak: ["storm"],              resist: [],
+    sprite: [["#7a61cc", 4, 10, 5, 4], ["#7a61cc", 9, 8, 6, 6], ["#7a61cc", 15, 10, 5, 4]] },
+  { id: "skeleton", hp: 10, atk: 4, vision: 8,  weak: ["storm", "life"],      resist: ["frost"],
+    sprite: [["#e7e7e7", 9, 3, 6, 5], ["#e7e7e7", 8, 9, 8, 9]] },
+  { id: "imp",      hp: 8,  atk: 5, vision: 9,  weak: ["frost"],              resist: ["fire"],
+    sprite: [["#e4734f", 8, 7, 8, 10], ["#ff4c4c", 6, 5, 2, 4], ["#ff4c4c", 16, 5, 2, 4]] },
+  { id: "wolf",     hp: 12, atk: 5, vision: 11, weak: ["fire"],               resist: [],
+    sprite: [["#8d8d99", 5, 10, 14, 6], ["#8d8d99", 14, 7, 5, 4]] },
+  { id: "orc",      hp: 15, atk: 6, vision: 8,  weak: ["storm"],              resist: ["fire"],
+    sprite: [["#4f7a32", 7, 6, 10, 12], ["#c89a6d", 9, 3, 6, 4]] },
+  { id: "wraith",   hp: 11, atk: 7, vision: 12, weak: ["life", "arcane"],     resist: ["storm", "frost"],
+    sprite: [["#9bc4ff", 8, 5, 8, 12], ["#e8f2ff", 10, 3, 4, 3]] }
 ];
 
-export const SCHOOLS = { FIRE: "fire", FROST: "frost", STORM: "storm", LIFE: "life", ARCANE: "arcane" };
+export const BOSS_SPRITE = [["#8b173f", 6, 5, 12, 14], ["#f2d9d9", 9, 2, 6, 4]];
+
+export const HERO_SPRITE = [
+  ["#2b2d42", 8, 3, 8, 3],
+  ["#f1c27d", 9, 6, 6, 5],
+  ["#355c7d", 8, 11, 8, 8],
+  ["#6c8f3d", 7, 13, 2, 6],
+  ["#6c8f3d", 16, 13, 2, 6],
+  ["#c9c9d4", 15, 12, 4, 2]
+];
+
+export const PORTRAIT_SPRITE = [
+  ["#101028", 0, 0, 16, 16],
+  ["#2b2d42", 6, 2, 4, 2],
+  ["#f1c27d", 6, 4, 4, 4],
+  ["#355c7d", 5, 8, 6, 6],
+  ["#6c8f3d", 4, 10, 1, 3],
+  ["#6c8f3d", 11, 10, 1, 3]
+];
+
+export const BOSS_PORTRAIT_SPRITE = [
+  ["#101028", 0, 0, 96, 96],
+  ["#8b173f", 26, 24, 44, 52],
+  ["#f2d9d9", 38, 14, 20, 14],
+  ["#ff5dc1", 20, 50, 12, 8],
+  ["#ff5dc1", 64, 50, 12, 8]
+];
 
 export const SCHOOL_COLORS = {
   fire: "#ff7a3a", frost: "#7dd3ff", storm: "#c79bff",
@@ -58,21 +93,3 @@ export const STATUS_DEFS = {
   stun:  { tag: "Z", color: "#ffffff" },
   regen: { tag: "+", color: "#84f6a6" }
 };
-
-// targeting kinds: self | adjacent | line | tile | aim | teleport | wall
-export const SPELL_LIBRARY = [
-  { id: "bolt",   name: "Arc Bolt",      school: SCHOOLS.STORM,  cost: 4,  targeting: "line",    range: 9, desc: "Line strike. Shocks. R2 pierces. R3 stuns on crit." },
-  { id: "chain",  name: "Chain Spark",   school: SCHOOLS.STORM,  cost: 8,  targeting: "self",    range: 0, desc: "Hits 3/4/5 nearest foes, falloff. Shocks all." },
-  { id: "nova",   name: "Flame Nova",    school: SCHOOLS.FIRE,   cost: 7,  targeting: "tile",    range: 5, desc: "AoE blast at a tile. Leaves burn floor." },
-  { id: "ember",  name: "Ember Mine",    school: SCHOOLS.FIRE,   cost: 5,  targeting: "tile",    range: 4, desc: "Place a mine. First foe trips it for a 3x3 burn." },
-  { id: "meteor", name: "Meteor",        school: SCHOOLS.FIRE,   cost: 11, targeting: "tile",    range: 8, desc: "Massive crater, heavy burn tiles." },
-  { id: "frost",  name: "Frost Lance",   school: SCHOOLS.FROST,  cost: 6,  targeting: "line",    range: 8, desc: "Pierces all in a line. Chills. Shatters chilled." },
-  { id: "pull",   name: "Tide Pull",     school: SCHOOLS.FROST,  cost: 5,  targeting: "aim",     range: 8, desc: "Yank a foe 3 tiles toward you. Chills." },
-  { id: "mend",   name: "Mend",          school: SCHOOLS.LIFE,   cost: 5,  targeting: "self",    range: 0, desc: "Instant heal + short regen." },
-  { id: "drain",  name: "Vampire Touch", school: SCHOOLS.LIFE,   cost: 4,  targeting: "adjacent",range: 1, desc: "Strike adjacent foes, heal for 60% dealt." },
-  { id: "thorn",  name: "Thornwall",     school: SCHOOLS.LIFE,   cost: 6,  targeting: "wall",    range: 4, desc: "Three root walls block foes 5+ turns." },
-  { id: "blink",  name: "Blink",         school: SCHOOLS.ARCANE, cost: 4,  targeting: "teleport",range: 6, desc: "Teleport to a visible tile." },
-  { id: "echo",   name: "Echo",          school: SCHOOLS.ARCANE, cost: 3,  targeting: "self",    range: 0, desc: "Recast your last offensive spell at half cost." }
-];
-
-export const SPELL_BY_ID = Object.fromEntries(SPELL_LIBRARY.map((s) => [s.id, s]));

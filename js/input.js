@@ -1,7 +1,7 @@
 import { state, ui, canvas } from "./state.js";
-import { tileSize, SPELL_BY_ID } from "./config.js";
+import { tileSize } from "./config.js";
 import { setMessage, inBounds } from "./utils.js";
-import { castSpell, spendSpellMana } from "./spells.js";
+import { SPELL_BY_ID, castSpell, spendSpellMana } from "./spells/index.js";
 import { rangedAttackAt } from "./combat.js";
 import { tryMove, enemyTurn, useRelic } from "./turn.js";
 import { renderBackpack } from "./backpack.js";

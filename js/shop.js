@@ -1,8 +1,8 @@
 import { state, ui } from "./state.js";
-import { SPELL_LIBRARY, WEAPON_POOL } from "./config.js";
+import { WEAPON_POOL } from "./config.js";
 import { pick, setMessage } from "./utils.js";
 import { equipWeapon, makeRelic, recalcAttack } from "./items.js";
-import { rankOf } from "./spells.js";
+import { SPELL_LIBRARY, rankOf } from "./spells/index.js";
 
 export function openShop() {
   ui.shopOverlay.classList.remove("hidden");
@@ -34,26 +34,26 @@ function buySpellScroll() {
   }
 }
 
+const SHOP_OFFERS = [
+  { name: "+8 Max HP (25g)", cost: 25, buy() {
+      state.player.maxHp += 8;
+      state.player.hp = Math.min(state.player.maxHp, state.player.hp + 8);
+    } },
+  { name: "+3 Max MP (22g)", cost: 22, buy() {
+      state.player.maxMana += 3;
+      state.player.mana = state.player.maxMana;
+    } },
+  { name: "Weapon Crate (30g)", cost: 30, buy() { equipWeapon(pick(WEAPON_POOL)); } },
+  { name: "Random Relic (28g)", cost: 28, buy() {
+      if (state.player.inventory.length < 6) state.player.inventory.push(makeRelic(state.floor));
+    } },
+  { name: "Spell Scroll (26g)", cost: 26, buy: buySpellScroll }
+];
+
 export function renderShop() {
   ui.shopGold.textContent = `Gold: ${state.player.gold}`;
   ui.shopChoices.innerHTML = "";
-  const offers = [
-    { name: "+8 Max HP (25g)", cost: 25, buy: () => {
-        state.player.maxHp += 8;
-        state.player.hp = Math.min(state.player.maxHp, state.player.hp + 8);
-      } },
-    { name: "+3 Max MP (22g)", cost: 22, buy: () => {
-        state.player.maxMana += 3;
-        state.player.mana = state.player.maxMana;
-      } },
-    { name: "Weapon Crate (30g)", cost: 30, buy: () => equipWeapon(pick(WEAPON_POOL)) },
-    { name: "Random Relic (28g)", cost: 28, buy: () => {
-        if (state.player.inventory.length < 6) state.player.inventory.push(makeRelic(state.floor));
-      } },
-    { name: "Spell Scroll (26g)", cost: 26, buy: buySpellScroll }
-  ];
-
-  for (const offer of offers) {
+  for (const offer of SHOP_OFFERS) {
     const btn = document.createElement("button");
     btn.className = "choice";
     btn.innerHTML = `<strong>${offer.name}</strong><span>Spend gold for upgrades.</span>`;
