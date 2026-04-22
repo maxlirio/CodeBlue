@@ -5,6 +5,7 @@ import { spick } from "./rng.js";
 import { rollHit } from "./combat.js";
 import { openShop } from "./shop.js";
 import { drawSprite } from "./render.js";
+import { endRun } from "./turn.js";
 
 const BOSS_FIRST = ["Gore", "Night", "Bone", "Murk", "Rot", "Hex", "Dread", "Iron", "Blight", "Ash"];
 const BOSS_SECOND = ["maw", "king", "warden", "tyrant", "seer", "fang", "golem", "devourer", "brute", "reaper"];
@@ -107,15 +108,16 @@ export async function resolveBossAction(inputText) {
   renderBossState();
 
   if (state.player.hp <= 0) {
-    state.over = true;
+    const name = state.bossBattle.name;
     ui.bossOverlay.classList.add("hidden");
-    setMessage("You were defeated in the boss arena.");
+    endRun(`Slain by ${name} in the arena on floor ${state.floor}.`);
     return;
   }
   if (state.bossBattle.hp <= 0) {
     state.bossAlive = false;
     state.bossBattle = null;
     state.awaitingShop = true;
+    state.stats.bossKills += 1;
     ui.bossOverlay.classList.add("hidden");
     setMessage("Boss defeated in the arena!");
     openShop();

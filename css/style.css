@@ -47,22 +47,6 @@ body {
   position: relative;
 }
 
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background: repeating-linear-gradient(
-    0deg,
-    var(--scan) 0px,
-    var(--scan) 1px,
-    transparent 1px,
-    transparent 3px
-  );
-  z-index: 1000;
-  mix-blend-mode: multiply;
-}
-
 .frame {
   border: 3px solid var(--frame);
   outline: 1px solid var(--frame-lit);

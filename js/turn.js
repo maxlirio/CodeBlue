@@ -16,10 +16,10 @@ import { buildFloor } from "./map.js";
 import { SCHOOL_COLORS } from "./config.js";
 import { showResult } from "./result.js";
 
-function endRun(cause) {
+export function endRun(cause) {
   state.over = true;
   state.lastKilledBy = cause;
-  // mark the floor we died on
+  state.bossBattle = null;
   state.stats.floorLog[state.floor - 1] = "died";
   setMessage(cause);
   showResult();

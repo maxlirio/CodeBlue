@@ -8,9 +8,7 @@ const classEl = document.getElementById("resultClass");
 const epitaphEl = document.getElementById("resultEpitaph");
 const gridEl = document.getElementById("resultGrid");
 const statsEl = document.getElementById("resultStats");
-const copyBtn = document.getElementById("copyShare");
 const newBtn = document.getElementById("playAgain");
-const replayBtn = document.getElementById("replaySeed");
 
 const GLYPH = {
   cleared: "▓",
@@ -37,19 +35,10 @@ function buildGrid() {
   return cells.join(" ");
 }
 
-function shareUrl() {
-  const params = new URLSearchParams();
-  if (state.seed) params.set("seed", state.seed);
-  if (state.heroName) params.set("name", state.heroName);
-  if (state.player.className) params.set("class", state.player.className);
-  const hash = params.toString();
-  return `${location.origin}${location.pathname}${hash ? "#" + hash : ""}`;
-}
-
 export function showResult() {
   verdictEl.textContent = state.won ? "▼ VICTORY ▼" : "▼ RUN ENDED ▼";
   nameEl.textContent = runName();
-  classEl.textContent = `the ${state.player.className} · seed ${state.seed || "random"}`;
+  classEl.textContent = `the ${state.player.className}`;
   epitaphEl.textContent = epitaph();
   gridEl.textContent = buildGrid();
   statsEl.innerHTML = `
@@ -63,29 +52,7 @@ export function showResult() {
   overlay.classList.remove("hidden");
 }
 
-function hideResult() { overlay.classList.add("hidden"); }
-
-copyBtn.addEventListener("click", async () => {
-  const url = shareUrl();
-  try {
-    await navigator.clipboard.writeText(url);
-    copyBtn.textContent = "copied!";
-    setTimeout(() => { copyBtn.textContent = "copy share link"; }, 1600);
-  } catch {
-    copyBtn.textContent = url;
-  }
-});
-
 newBtn.addEventListener("click", () => {
-  // back to class screen with a fresh seed
   location.hash = "";
-  location.reload();
-});
-
-replayBtn.addEventListener("click", () => {
-  // keep seed in URL, drop everything else, reload
-  const params = new URLSearchParams();
-  if (state.seed) params.set("seed", state.seed);
-  location.hash = params.toString();
   location.reload();
 });

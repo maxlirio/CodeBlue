@@ -3,12 +3,9 @@ import { CLASS_OPTIONS, SCHOOL_COLORS, STATUS_DEFS } from "./config.js";
 import { SPELL_BY_ID, rankOf } from "./spells/index.js";
 import { drawPortrait } from "./render.js";
 import { chooseClass } from "./turn.js";
-import { randomSeedString, setSeed } from "./rng.js";
 
 const heroNameInput = document.getElementById("heroName");
-const runSeedInput = document.getElementById("runSeed");
 const rerollNameBtn = document.getElementById("rerollName");
-const rerollSeedBtn = document.getElementById("rerollSeed");
 const heroDisplay = document.getElementById("heroDisplay");
 
 function suggestName() {
@@ -72,12 +69,9 @@ export function updateUi() {
   drawPortrait();
 }
 
-export function renderClassChoices(initial = {}) {
-  heroNameInput.value = initial.name || suggestName();
-  runSeedInput.value = initial.seed || randomSeedString();
-
+export function renderClassChoices() {
+  heroNameInput.value = suggestName();
   rerollNameBtn.addEventListener("click", () => { heroNameInput.value = suggestName(); });
-  rerollSeedBtn.addEventListener("click", () => { runSeedInput.value = randomSeedString(); });
 
   ui.classChoices.innerHTML = "";
   for (const c of CLASS_OPTIONS) {
@@ -86,16 +80,7 @@ export function renderClassChoices(initial = {}) {
     btn.innerHTML = `<strong>${c.name}</strong><span>HP ${c.hp}, MP ${c.mana}, ATK ${c.atk}, Weapon ${c.weapon}</span>`;
     btn.addEventListener("click", () => {
       const heroName = heroNameInput.value.trim() || suggestName();
-      const seed = runSeedInput.value.trim() || randomSeedString();
-      setSeed(seed);
-      chooseClass(c, { heroName, seed });
-
-      // Preselect class in URL so "replay same seed" reproduces the exact run
-      const params = new URLSearchParams();
-      params.set("seed", seed);
-      params.set("name", heroName);
-      params.set("class", c.name);
-      history.replaceState(null, "", "#" + params.toString());
+      chooseClass(c, { heroName });
     });
     ui.classChoices.appendChild(btn);
   }
