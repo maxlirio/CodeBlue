@@ -47,6 +47,26 @@ body {
   position: relative;
 }
 
+@media (min-width: 900px) {
+  html, body { height: 100vh; overflow: hidden; }
+  body {
+    --sidebar-w: clamp(300px, 28vw, 420px);
+    min-height: 0;
+    grid-template-columns: auto var(--sidebar-w);
+    grid-template-rows: 1fr auto;
+    grid-template-areas:
+      "frame hud"
+      "touch hud";
+    justify-content: center;
+    align-content: center;
+    gap: 12px 16px;
+    padding: 12px;
+  }
+  .frame { grid-area: frame; }
+  .hud { grid-area: hud; }
+  .touch-controls { grid-area: touch; }
+}
+
 .frame {
   border: 3px solid var(--frame);
   outline: 1px solid var(--frame-lit);
@@ -74,6 +94,18 @@ canvas {
   -webkit-user-drag: none;
 }
 
+@media (min-width: 900px) {
+  canvas {
+    aspect-ratio: 672 / 432;
+    height: min(
+      calc(100vh - 56px),
+      calc((100vw - var(--sidebar-w) - 64px) * 432 / 672)
+    );
+    width: auto;
+    max-width: none;
+  }
+}
+
 .hud {
   width: min(92vw, 840px);
   display: grid;
@@ -82,6 +114,15 @@ canvas {
   border: 2px solid var(--frame);
   border-radius: 2px;
   padding: 10px;
+}
+
+@media (min-width: 900px) {
+  .hud {
+    width: 100%;
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+    align-self: center;
+  }
 }
 
 .stats {
