@@ -170,9 +170,15 @@ export const HERO_SPRITES = {
     ["#1a2a44", 10, 15, 4, 5]
   ],
   Ranger: [
-    ["#6b4a2c", 3, 4, 2, 14],
-    ["#8b6a3c", 3, 2, 2, 2],
-    ["#8b6a3c", 3, 18, 2, 2],
+    // Bow (replaces the staff)
+    ["#6b4a2c", 5, 4, 1, 14],   // bow shaft
+    ["#a87a4d", 5, 9, 1, 4],    // grip highlight
+    ["#6b4a2c", 4, 3, 1, 2],    // upper tip
+    ["#6b4a2c", 4, 18, 1, 2],   // lower tip
+    ["#3a2a1a", 4, 3, 1, 1],    // top knock dark
+    ["#3a2a1a", 4, 19, 1, 1],   // bottom knock dark
+    ["#e8d8a4", 3, 5, 1, 12],   // bowstring
+    // Body
     ["#3e6b3e", 9, 3, 6, 3],
     ["#2a4a2a", 8, 4, 2, 4],
     ["#d8a478", 10, 6, 4, 4],
