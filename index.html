@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>Pixel Rogue</title>
-  <link rel="stylesheet" href="css/style.css?v=15" />
+  <link rel="stylesheet" href="css/style.css?v=16" />
 </head>
 <body>
   <div class="frame">
@@ -23,7 +23,7 @@
     </div>
 
     <div id="shopOverlay" class="overlay hidden">
-      <h2>MERCHANT CARAVAN</h2>
+      <h2 id="shopTitle">MERCHANT CARAVAN</h2>
       <p id="shopGold"></p>
       <div id="shopChoices" class="choice-grid"></div>
       <button class="choice" id="leaveShop">Done</button>
@@ -140,7 +140,7 @@
 
   <section class="hud" aria-live="polite">
     <div class="stats">
-      <canvas id="portrait" width="16" height="16" aria-label="Hero portrait"></canvas>
+      <canvas id="portrait" width="24" height="24" aria-label="Hero portrait"></canvas>
       <div class="stat-grid">
         <span>name: <strong id="heroDisplay">—</strong></span>
         <span>class: <strong id="className">—</strong></span>
@@ -193,6 +193,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/main.js?v=15"></script>
+  <script type="module" src="js/main.js?v=16"></script>
 </body>
 </html>

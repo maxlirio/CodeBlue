@@ -184,8 +184,16 @@ export function enterTown() {
   setMessage("You return to town. The air is peaceful here.");
 }
 
+function floorIsClear() {
+  return !state.bossAlive && !state.enemies.some((e) => e.hp > 0);
+}
+
 export function returnToTown() {
   if (state.floor === 0 || !state.started || state.over) return;
+  if (!floorIsClear()) {
+    setMessage("Enemies still roam this floor. Clear them before recalling.");
+    return;
+  }
   maybeMarkCurrentFloorCleared();
   snapshotFloor();
   enterFloor(0, { fromAbove: false });
@@ -222,6 +230,11 @@ function descend() {
 
 function ascend() {
   if (state.floor === 0) { setMessage("You are already in town."); return; }
+  if (!floorIsClear()) {
+    setMessage("Enemies still roam this floor. Clear them before climbing back.");
+    return;
+  }
+  maybeMarkCurrentFloorCleared();
   snapshotFloor();
   const prev = state.floor - 1;
   enterFloor(prev, { fromAbove: false });

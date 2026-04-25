@@ -19,6 +19,7 @@ export const ui = {
   classOverlay: document.getElementById("classOverlay"),
   classChoices: document.getElementById("classChoices"),
   shopOverlay: document.getElementById("shopOverlay"),
+  shopTitle: document.getElementById("shopTitle"),
   shopGold: document.getElementById("shopGold"),
   shopChoices: document.getElementById("shopChoices"),
   leaveShop: document.getElementById("leaveShop"),

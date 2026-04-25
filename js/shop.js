@@ -103,10 +103,13 @@ function describeEnchant(e) {
 function renderEnchanter() {
   const tiers = getEnchantTiers();
   const w = state.player.backpack.find((x) => x.name === state.player.weapon);
+  const v = SHOP_VENDORS.enchanter;
+  if (ui.shopTitle) ui.shopTitle.textContent = v ? `${v.title} — ${v.name}` : "ENCHANTER";
   ui.shopGold.innerHTML =
-    `ENCHANTER — Gold: ${state.player.gold}<br>` +
-    `Equipped: <strong>${state.player.weapon || "(none)"}</strong>` +
-    (w?.enchant ? ` · <span style="color:${w.enchant.color}">${w.enchant.name}</span> — ${describeEnchant(w.enchant)}` : ` · No enchant.`);
+    `<div class="shop-header-line"><span class="shop-gold"><b>${state.player.gold}g</b> in pouch</span></div>` +
+    `<div>Equipped: <strong>${state.player.weapon || "(none)"}</strong>` +
+    (w?.enchant ? ` · <span style="color:${w.enchant.color}">${w.enchant.name}</span> — ${describeEnchant(w.enchant)}` : ` · No enchant.`) +
+    `</div>`;
 
   ui.shopChoices.innerHTML = "";
 
@@ -218,8 +221,9 @@ export function renderShop() {
   const title = v ? `${v.title} — ${v.name}` : shop.title;
   const dialogue = activeGreeting || (v ? pickFrom(v.greet) : "");
   activeGreeting = dialogue;
+  if (ui.shopTitle) ui.shopTitle.textContent = title;
   ui.shopGold.innerHTML =
-    `<div class="shop-header-line">${title} <span class="shop-gold"><b>${state.player.gold}g</b></span></div>` +
+    `<div class="shop-header-line"><span class="shop-gold"><b>${state.player.gold}g</b> in pouch</span></div>` +
     (dialogue ? `<div class="shop-dialogue">"${dialogue}"</div>` : "");
 
   ui.shopChoices.innerHTML = "";

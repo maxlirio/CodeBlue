@@ -83,7 +83,10 @@ function drawEnemy(enemy) {
 }
 
 export function drawPortrait() {
-  const sprite = PORTRAIT_SPRITES[state.player.className] || PORTRAIT_SPRITE;
+  // Backdrop so the hero sprite reads cleanly in the HUD frame.
+  portraitCtx.fillStyle = "#101028";
+  portraitCtx.fillRect(0, 0, 24, 24);
+  const sprite = HERO_SPRITES[state.player.className] || HERO_SPRITE;
   drawSprite(portraitCtx, sprite, 0, 0);
 }
 
