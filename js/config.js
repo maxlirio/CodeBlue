@@ -76,30 +76,67 @@ export const WEAPON_POOL = [
 
 // sprite: array of [color, dx, dy, w, h] rects drawn within a tile
 export const ENEMY_TYPES = [
-  { id: "slime",    hp: 7,  atk: 2, vision: 7,  weak: ["fire"],               resist: ["frost"],
-    protocol: "slime",    actInterval: 950,
+  { id: "slime",    hp: 8,  atk: 3, vision: 8,  weak: ["fire"],               resist: ["frost"],
+    protocol: "slime",    actInterval: 820,
     sprite: [["#4bc35f", 5, 12, 14, 8], ["#8ff59a", 7, 10, 10, 3]] },
-  { id: "goblin",   hp: 9,  atk: 3, vision: 8,  weak: ["life"],               resist: [],
-    protocol: "goblin",   actInterval: 700,
+  { id: "goblin",   hp: 10, atk: 4, vision: 9,  weak: ["life"],               resist: [],
+    protocol: "goblin",   actInterval: 600,
     sprite: [["#5a8f3d", 8, 7, 8, 11], ["#b48a5a", 9, 4, 6, 4]] },
-  { id: "bat",      hp: 6,  atk: 3, vision: 10, weak: ["storm"],              resist: [],
-    protocol: "bat",      actInterval: 420,
+  { id: "bat",      hp: 7,  atk: 3, vision: 11, weak: ["storm"],              resist: [],
+    protocol: "bat",      actInterval: 360,
     sprite: [["#7a61cc", 4, 10, 5, 4], ["#7a61cc", 9, 8, 6, 6], ["#7a61cc", 15, 10, 5, 4]] },
-  { id: "skeleton", hp: 10, atk: 4, vision: 8,  weak: ["storm", "life"],      resist: ["frost"],
-    protocol: "skeleton", actInterval: 750,
+  { id: "skeleton", hp: 11, atk: 5, vision: 9,  weak: ["storm", "life"],      resist: ["frost"],
+    protocol: "skeleton", actInterval: 640,
     sprite: [["#e7e7e7", 9, 3, 6, 5], ["#e7e7e7", 8, 9, 8, 9]] },
-  { id: "imp",      hp: 8,  atk: 5, vision: 9,  weak: ["frost"],              resist: ["fire"],
-    protocol: "imp",      actInterval: 600,
+  { id: "imp",      hp: 9,  atk: 5, vision: 10, weak: ["frost"],              resist: ["fire"],
+    protocol: "imp",      actInterval: 520,
     sprite: [["#e4734f", 8, 7, 8, 10], ["#ff4c4c", 6, 5, 2, 4], ["#ff4c4c", 16, 5, 2, 4]] },
-  { id: "wolf",     hp: 12, atk: 5, vision: 11, weak: ["fire"],               resist: [],
-    protocol: "wolf",     actInterval: 460,
+  { id: "wolf",     hp: 13, atk: 6, vision: 12, weak: ["fire"],               resist: [],
+    protocol: "wolf",     actInterval: 380,
     sprite: [["#8d8d99", 5, 10, 14, 6], ["#8d8d99", 14, 7, 5, 4]] },
-  { id: "orc",      hp: 15, atk: 6, vision: 8,  weak: ["storm"],              resist: ["fire"],
-    protocol: "orc",      actInterval: 900,
+  { id: "orc",      hp: 17, atk: 7, vision: 9,  weak: ["storm"],              resist: ["fire"],
+    protocol: "orc",      actInterval: 760,
     sprite: [["#4f7a32", 7, 6, 10, 12], ["#c89a6d", 9, 3, 6, 4]] },
-  { id: "wraith",   hp: 11, atk: 7, vision: 12, weak: ["life", "arcane"],     resist: ["storm", "frost"],
-    protocol: "wraith",   actInterval: 620,
-    sprite: [["#9bc4ff", 8, 5, 8, 12], ["#e8f2ff", 10, 3, 4, 3]] }
+  { id: "wraith",   hp: 12, atk: 8, vision: 13, weak: ["life", "arcane"],     resist: ["storm", "frost"],
+    protocol: "wraith",   actInterval: 540,
+    sprite: [["#9bc4ff", 8, 5, 8, 12], ["#e8f2ff", 10, 3, 4, 3]] },
+  // New enemies — added with fresh behavior protocols
+  { id: "spider",   hp: 9,  atk: 4, vision: 12, weak: ["fire"],               resist: [],
+    protocol: "spider",   actInterval: 320,
+    sprite: [
+      ["#2a1a3a", 8, 9, 8, 6],     // body
+      ["#5b3a8e", 10, 7, 4, 4],    // head
+      ["#ff5dc1", 10, 8, 1, 1], ["#ff5dc1", 13, 8, 1, 1], // eyes
+      ["#1a0a14", 4, 10, 3, 1], ["#1a0a14", 17, 10, 3, 1],
+      ["#1a0a14", 4, 13, 3, 1], ["#1a0a14", 17, 13, 3, 1],
+      ["#1a0a14", 6, 16, 1, 2], ["#1a0a14", 17, 16, 1, 2]
+    ] },
+  { id: "ghoul",    hp: 18, atk: 6, vision: 8,  weak: ["life"],               resist: ["frost"],
+    protocol: "ghoul",    actInterval: 700,
+    sprite: [
+      ["#5a7a4d", 8, 4, 8, 5],     // head
+      ["#3a5a2d", 8, 4, 8, 1],
+      ["#1a0a08", 9, 6, 1, 1], ["#1a0a08", 14, 6, 1, 1], // eyes
+      ["#a8323e", 10, 8, 4, 1],    // bloody mouth
+      ["#5a7a4d", 7, 9, 10, 8],    // torso
+      ["#3a5a2d", 7, 9, 10, 1],
+      ["#5a7a4d", 5, 10, 2, 4], ["#5a7a4d", 17, 10, 2, 4],  // arms
+      ["#a8323e", 6, 14, 1, 1], ["#a8323e", 17, 14, 1, 1],  // bloodied claws
+      ["#5a7a4d", 9, 17, 2, 3], ["#5a7a4d", 13, 17, 2, 3]   // legs
+    ] },
+  { id: "shaman",   hp: 14, atk: 4, vision: 11, weak: ["arcane"],             resist: ["storm"],
+    protocol: "shaman",   actInterval: 700,
+    sprite: [
+      ["#3e9e9e", 8, 1, 8, 4],     // hood top
+      ["#1f4a4a", 8, 4, 8, 1],
+      ["#d8a478", 9, 5, 6, 4],     // face
+      ["#84f6a6", 10, 7, 1, 1], ["#84f6a6", 13, 7, 1, 1], // glowing eyes
+      ["#3e9e9e", 7, 9, 10, 9],    // robe
+      ["#1f4a4a", 7, 17, 10, 1],
+      ["#5c3a1a", 17, 4, 1, 14],   // staff
+      ["#84f6a6", 16, 3, 3, 3],    // staff orb
+      ["#cefcdb", 17, 4, 1, 1]
+    ] }
 ];
 
 export const BOSS_SPRITE = [["#8b173f", 6, 5, 12, 14], ["#f2d9d9", 9, 2, 6, 4]];

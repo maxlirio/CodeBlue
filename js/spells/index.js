@@ -189,7 +189,7 @@ export function castSpell(spell, tx, ty, { charged = false, _echoLevel = 0 } = {
 
   const isCrit = roll.kind === "crit";
   const critMul = isCrit ? 1.7 : 1;
-  const echoMul = _echoLevel > 0 ? 0.5 : 1;
+  const echoMul = _echoLevel > 0 ? 0.35 : 1;
   const baseDmg = Math.floor((7 + pow + rank * 2) * chargeMul * critMul * echoMul);
 
   spawnBurst(state.player.x, state.player.y, SCHOOL_COLORS[spell.school], 6 + (charged ? 8 : 0));

@@ -14,11 +14,11 @@ export const SPELL_AUGMENTS = [
   {
     id: "shatter",
     name: "Shatter Sigil",
-    desc: "+50% damage splash to enemies adjacent to the target.",
+    desc: "+30% damage splash to enemies adjacent to the target.",
     color: "#fca5ff",
     apply(spell, ctx) {
       let hit = 0;
-      const splash = Math.max(1, Math.floor((ctx.baseDmg || 0) * 0.5));
+      const splash = Math.max(1, Math.floor((ctx.baseDmg || 0) * 0.30));
       for (const e of state.enemies) {
         if (e.x === ctx.tx && e.y === ctx.ty) continue;
         if (Math.abs(e.x - ctx.tx) <= 1 && Math.abs(e.y - ctx.ty) <= 1) {
@@ -33,12 +33,12 @@ export const SPELL_AUGMENTS = [
   {
     id: "siphon",
     name: "Siphon Sigil",
-    desc: "Heal for 35% of damage dealt by the spell.",
+    desc: "Heal for 25% of damage dealt by the spell.",
     color: "#84f6a6",
     apply(spell, ctx) {
       const dealt = state.castingDamage || 0;
       if (dealt <= 0) return;
-      const heal = Math.max(1, Math.floor(dealt * 0.35));
+      const heal = Math.max(1, Math.floor(dealt * 0.25));
       const before = state.player.hp;
       state.player.hp = Math.min(state.player.maxHp, state.player.hp + heal);
       const gained = state.player.hp - before;
@@ -48,7 +48,7 @@ export const SPELL_AUGMENTS = [
   {
     id: "echo",
     name: "Echo Sigil",
-    desc: "Spell repeats once at 50% power.",
+    desc: "Spell repeats once at 35% power.",
     color: "#c79bff",
     repeat: true
   },
@@ -74,13 +74,13 @@ export const SPELL_AUGMENTS = [
   {
     id: "concuss",
     name: "Concuss Sigil",
-    desc: "Stun enemies in a 1-tile radius around the target for 2 turns.",
+    desc: "Stun enemies in a 1-tile radius around the target for 1 turn.",
     color: "#ffffff",
     apply(spell, ctx) {
       let hit = 0;
       for (const e of state.enemies) {
         if (Math.abs(e.x - ctx.tx) <= 1 && Math.abs(e.y - ctx.ty) <= 1) {
-          applyStatus(e, "stun", 2, 1);
+          applyStatus(e, "stun", 1, 1);
           spawnBurst(e.x, e.y, "#ffffff", 4);
           hit++;
         }
@@ -153,9 +153,11 @@ function openScrollApply(aug) {
     btn.addEventListener("click", () => {
       if (spellHasAugment(sp.id, aug.id)) return;
       if (!state.player.spellAugments) state.player.spellAugments = {};
-      const list = state.player.spellAugments[sp.id] = state.player.spellAugments[sp.id] || [];
-      list.push(aug.id);
-      setMessage(`${aug.name} bound to ${sp.name}.`);
+      // One sigil per spell — binding a new one replaces the previous.
+      const prev = state.player.spellAugments[sp.id];
+      state.player.spellAugments[sp.id] = [aug.id];
+      const replaced = prev && prev.length ? ` (replaced ${prev.join(", ")})` : "";
+      setMessage(`${aug.name} bound to ${sp.name}.${replaced}`);
       if (typeof state.pendingScrollIdx === "number") {
         state.player.inventory.splice(state.pendingScrollIdx, 1);
         state.pendingScrollIdx = null;

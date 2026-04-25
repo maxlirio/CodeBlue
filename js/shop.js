@@ -40,28 +40,28 @@ const SHOPS = {
   weapon: {
     title: "BLACKSMITH",
     offers: [
-      { name: "Weapon Crate (30g)", cost: 30, buy() { equipWeapon(pick(WEAPON_POOL)); } },
-      { name: "Arrow Bundle (15g, +10)", cost: 15, buy() { state.player.arrows += 10; } },
-      { name: "Sharpen Blade (20g, +1 ATK)", cost: 20, buy() { state.player.baseAtk += 1; } }
+      { name: "Weapon Crate (45g)", cost: 45, buy() { equipWeapon(pick(WEAPON_POOL)); } },
+      { name: "Arrow Bundle (20g, +10)", cost: 20, buy() { state.player.arrows += 10; } },
+      { name: "Sharpen Blade (90g, +1 ATK perm.)", cost: 90, buy() { state.player.baseAtk += 1; } }
     ]
   },
   alchemist: {
     title: "ALCHEMIST",
     offers: [
-      { name: "Healing Potion (12g)", cost: 12, buy() { addPotion("heal"); } },
-      { name: "Mana Draught (14g)", cost: 14, buy() { addPotion("mana"); } },
-      { name: "Swiftness Elixir (20g)", cost: 20, buy() { addPotion("swiftness"); } },
-      { name: "Aegis Flask (22g)", cost: 22, buy() { addPotion("aegis"); } },
-      { name: "Growth Tonic (28g)", cost: 28, buy() { addPotion("growth"); } },
-      { name: "Focus Draught (24g)", cost: 24, buy() { addPotion("focus"); } }
+      { name: "Healing Potion (18g)", cost: 18, buy() { addPotion("heal"); } },
+      { name: "Mana Draught (18g)", cost: 18, buy() { addPotion("mana"); } },
+      { name: "Swiftness Elixir (28g)", cost: 28, buy() { addPotion("swiftness"); } },
+      { name: "Aegis Flask (32g)", cost: 32, buy() { addPotion("aegis"); } },
+      { name: "Growth Tonic (110g, +5 max HP perm.)", cost: 110, buy() { addPotion("growth"); } },
+      { name: "Focus Draught (110g, +2 max MP perm.)", cost: 110, buy() { addPotion("focus"); } }
     ]
   },
   arcanum: {
     title: "ARCANUM",
     offers: [
-      { name: "Spell Scroll (26g)", cost: 26, buy: buySpellScroll },
-      { name: "+1 Spell Power (30g)", cost: 30, buy() { state.player.spellPower += 1; } },
-      { name: "Sigil Scroll (40g)", cost: 40, buy() {
+      { name: "Spell Scroll (40g)", cost: 40, buy: buySpellScroll },
+      { name: "+1 Spell Power (100g perm.)", cost: 100, buy() { state.player.spellPower += 1; } },
+      { name: "Sigil Scroll (75g)", cost: 75, buy() {
           if (state.player.inventory.length >= 6) { setMessage("Inventory full — drop a relic first."); return false; }
           state.player.inventory.push(makeMagicScroll());
         } }
@@ -70,7 +70,7 @@ const SHOPS = {
   curio: {
     title: "CURIOS",
     offers: [
-      { name: "Random Relic (28g)", cost: 28, buy() {
+      { name: "Random Relic (40g)", cost: 40, buy() {
           if (state.player.inventory.length < 6) state.player.inventory.push(makeRelic(state.floor));
           else setMessage("Relic inventory full.");
         } }

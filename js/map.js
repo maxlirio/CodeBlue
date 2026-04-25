@@ -39,18 +39,18 @@ function placeEnemy(occupied, isBoss) {
     const k = key(pos.x, pos.y);
     if (occupied.has(k)) continue;
     occupied.add(k);
-    const scale = 1 + Math.floor(state.floor / 5);
+    const scale = 1 + Math.floor(state.floor / 4);
     const protocol = isBoss ? "boss" : type.protocol;
-    const actInterval = isBoss ? 780 : type.actInterval;
+    const actInterval = isBoss ? 660 : type.actInterval;
     state.enemies.push({
       x: pos.x,
       y: pos.y,
       type: isBoss ? "boss" : type.id,
       name: isBoss ? makeBossName() : type.id,
-      hp: isBoss ? 32 + state.floor * 4 : type.hp + scale * 2,
-      maxHp: isBoss ? 32 + state.floor * 4 : type.hp + scale * 2,
-      atk: isBoss ? 8 + Math.floor(state.floor / 2) : type.atk + scale,
-      baseAtk: isBoss ? 8 + Math.floor(state.floor / 2) : type.atk + scale,
+      hp: isBoss ? 48 + state.floor * 5 : type.hp + scale * 3,
+      maxHp: isBoss ? 48 + state.floor * 5 : type.hp + scale * 3,
+      atk: isBoss ? 10 + Math.floor(state.floor / 2) : type.atk + Math.ceil(scale * 1.3),
+      baseAtk: isBoss ? 10 + Math.floor(state.floor / 2) : type.atk + Math.ceil(scale * 1.3),
       vision: isBoss ? 12 : type.vision,
       statuses: [],
       weak: isBoss ? [] : (type.weak || []),
@@ -140,9 +140,9 @@ function rollChestLoot() {
     if (item) loot.questItem = item;
   }
   const r = srand();
-  if (r < 0.30) loot.potion = true;
-  else if (r < 0.52) loot.relic = makeRelic(state.floor);
-  else if (r < 0.72) {
+  if (r < 0.32) loot.potion = true;
+  else if (r < 0.56) loot.relic = makeRelic(state.floor);
+  else if (r < 0.78) {
     const atCap = state.player.knownSpells.size >= 6;
     const eligible = SPELL_LIBRARY.filter(isSpellForPlayer);
     const unknown = atCap ? [] : eligible.filter((s) => !state.player.knownSpells.has(s.id));
@@ -150,7 +150,7 @@ function rollChestLoot() {
     const pool = unknown.length ? unknown : rankable;
     if (pool.length) loot.spell = pick(pool);
   }
-  else if (r < 0.85) loot.scroll = makeMagicScroll();
+  else if (r < 0.84) loot.scroll = makeMagicScroll();
   else if (r < 0.90) loot.weapon = pick(WEAPON_POOL);
   else if (r < 0.99) loot.spellPoints = 1 + Math.floor(state.floor / 5);
   return loot;

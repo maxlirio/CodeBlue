@@ -157,6 +157,86 @@ function pWraith(e) {
   }
 }
 
+// Spider — bursts in, bites and applies poison, then strafes.
+function pSpider(e) {
+  e.protoState ??= { lunged: 0 };
+  const d = distance(e, state.player);
+  if (d === 1) {
+    meleePlayer(e);
+    applyStatus(state.player, "burn", 4, 2);   // venom = small burn-like DOT
+    setMessage(`${e.name} bites — venom courses through you.`);
+    spawnBurst(state.player.x, state.player.y, "#5b3a8e", 6);
+    if (Math.random() < 0.6) stepAway(e, state.player);
+    return;
+  }
+  if (d <= e.vision) {
+    // Two-step burst: cover ground fast
+    stepToward(e, state.player);
+    if (distance(e, state.player) > 1) stepToward(e, state.player);
+    if (distance(e, state.player) === 1) {
+      meleePlayer(e);
+      applyStatus(state.player, "burn", 4, 2);
+      spawnBurst(state.player.x, state.player.y, "#5b3a8e", 6);
+    }
+  }
+}
+
+// Ghoul — slow, tough, leeches HP on hit. Resists chill but is hurt by life.
+function pGhoul(e) {
+  const d = distance(e, state.player);
+  if (d === 1) {
+    const dmg = meleePlayer(e, 1.1, `${e.name} rends you, claws drinking blood.`);
+    const heal = Math.min(e.maxHp - e.hp, Math.ceil(dmg * 0.6));
+    if (heal > 0) {
+      e.hp += heal;
+      spawnBurst(e.x, e.y, "#a8323e", 8);
+    }
+    return;
+  }
+  if (d <= e.vision) advanceAndStrike(e, 1.1);
+}
+
+// Shaman — caster. Stays at range, throws hex bolts that curse, occasionally
+// buffs nearby allies' speed (reduces their actInterval).
+function pShaman(e) {
+  e.protoState ??= { castTimer: 1200, buffTimer: 4500 };
+  const d = distance(e, state.player);
+  if (d === 1) { stepAway(e, state.player); return; }
+  if (d < 3) { stepAway(e, state.player); return; }
+
+  // Periodic ally speed-up
+  if (e.protoState.buffTimer <= 0) {
+    let buffed = 0;
+    for (const ally of state.enemies) {
+      if (ally === e || ally.hp <= 0) continue;
+      if (distance(ally, e) > 4) continue;
+      ally.actInterval = Math.max(220, Math.floor(ally.actInterval * 0.75));
+      spawnBurst(ally.x, ally.y, "#84f6a6", 6);
+      buffed++;
+    }
+    if (buffed) {
+      setMessage(`${e.name} chants — nearby foes quicken.`);
+      e.protoState.buffTimer = 6000;
+    }
+  }
+
+  // Hex bolt
+  if (d <= e.vision && hasLineOfSight(e.x, e.y, state.player.x, state.player.y)) {
+    if (e.protoState.castTimer <= 0) {
+      spawnBeam(e.x, e.y, state.player.x, state.player.y, "#84f6a6");
+      const dmg = playerTakeDamage(Math.max(2, Math.floor(e.atk * 0.9)));
+      applyStatus(state.player, "mark", 6, 1);  // mark = takes more damage
+      state.lastHitBy = e.name;
+      setMessage(`${e.name} hex-bolts you for ${dmg} and marks your soul.`);
+      e.protoState.castTimer = 1700;
+      return;
+    }
+  }
+  // Reposition for line of sight
+  if (d > e.vision) stepToward(e, state.player);
+  else if (!hasLineOfSight(e.x, e.y, state.player.x, state.player.y)) stepToward(e, state.player);
+}
+
 function spawnBossAdd(e) {
   const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1],[1,-1],[-1,1]];
   for (const [dx, dy] of dirs) {
@@ -197,26 +277,163 @@ function fireBossNova(e) {
   doScreenShake(8);
 }
 
+function bossCharge(e) {
+  // Lunge up to 3 tiles toward the player, then strike if adjacent.
+  for (let i = 0; i < 3 && distance(e, state.player) > 1; i++) {
+    if (!stepToward(e, state.player)) break;
+  }
+  spawnBurst(e.x, e.y, "#ff5dc1", 8);
+  setMessage(`${e.name} charges!`);
+  doScreenShake(4);
+  if (distance(e, state.player) === 1) meleePlayer(e, 1.4, `${e.name} crashes into you.`);
+}
+
+function bossSlamTelegraph(e) {
+  e.protoState.telegraph = "slam";
+  spawnBurst(e.x, e.y, "#ffd166", 6);
+  setMessage(`${e.name} winds up — earth cracking.`);
+}
+
+function bossSlamRelease(e) {
+  e.protoState.telegraph = null;
+  if (distance(e, state.player) <= 1) {
+    meleePlayer(e, 1.7, `${e.name} SLAMS you!`);
+    doScreenShake(7);
+  } else {
+    setMessage(`${e.name}'s slam misses — your ground splits.`);
+    doScreenShake(3);
+  }
+}
+
+function bossMarkAndSmite(e) {
+  if (!e.protoState.markedThisCombo) {
+    applyStatus(state.player, "mark", 6, 1);
+    spawnBeam(e.x, e.y, state.player.x, state.player.y, "#fca5ff");
+    setMessage(`${e.name} marks you. Something is coming.`);
+    e.protoState.markedThisCombo = true;
+    return;
+  }
+  // Second beat — smite
+  e.protoState.markedThisCombo = false;
+  if (hasLineOfSight(e.x, e.y, state.player.x, state.player.y)) {
+    const raw = Math.max(4, e.atk + 3);
+    const dmg = playerTakeDamage(raw);
+    spawnBeam(e.x, e.y, state.player.x, state.player.y, "#ff5dc1");
+    spawnBurst(state.player.x, state.player.y, "#ff5dc1", 14);
+    state.lastHitBy = e.name;
+    setMessage(`${e.name} SMITES — ${dmg} damage!`);
+    doScreenShake(6);
+  }
+}
+
+function bossEnrage(e) {
+  applyStatus(e, "haste", 8, 1);
+  e.actInterval = Math.max(360, Math.floor(e.actInterval * 0.7));
+  spawnBurst(e.x, e.y, "#ff5566", 16);
+  setMessage(`${e.name} ROARS — eyes burning.`);
+  doScreenShake(6);
+  e.protoState.enraged = true;
+}
+
 function pBoss(e) {
-  e.protoState ??= { addTimer: 3500, novaTimer: 4500 };
+  e.protoState ??= {
+    addTimer: 3000,
+    enraged: false,
+    telegraph: null,
+    cooldowns: { charge: 0, slam: 0, nova: 0, mark: 0 },
+    markedThisCombo: false
+  };
+  const cd = e.protoState.cooldowns;
+  for (const k of Object.keys(cd)) cd[k] = Math.max(0, cd[k] - 1);
+
   const frac = e.hp / e.maxHp;
   const d = distance(e, state.player);
 
-  if (frac <= 0.66 && frac > 0.33 && e.protoState.addTimer <= 0) {
-    if (spawnBossAdd(e)) e.protoState.addTimer = 4200;
-  }
-  if (frac <= 0.33 && e.protoState.novaTimer <= 0) {
-    fireBossNova(e);
-    e.protoState.novaTimer = 4200;
+  // Resolve any pending telegraph first.
+  if (e.protoState.telegraph === "slam") { bossSlamRelease(e); return; }
+
+  // Phase 3: one-time enrage
+  if (frac <= 0.33 && !e.protoState.enraged) { bossEnrage(e); return; }
+
+  // Phase 2: adds
+  if (frac <= 0.66 && e.protoState.addTimer <= 0) {
+    if (spawnBossAdd(e)) { e.protoState.addTimer = 3800; return; }
   }
 
-  if (d === 1) { meleePlayer(e, frac <= 0.33 ? 1.25 : 1); return; }
-  if (d <= e.vision) advanceAndStrike(e, frac <= 0.33 ? 1.25 : 1);
+  // Mark + smite combo (any phase, but more in phase 2/3)
+  if (frac <= 0.85 && e.protoState.markedThisCombo) {
+    bossMarkAndSmite(e);
+    return;
+  }
+
+  // Build a weighted ability pool based on phase, distance, cooldowns.
+  const options = [];
+  if (d === 1) {
+    options.push({ kind: "melee", weight: 4 });
+    if (cd.slam <= 0) options.push({ kind: "slam", weight: 3 });
+  } else if (d <= 3) {
+    options.push({ kind: "advance", weight: 3 });
+    if (cd.slam <= 0) options.push({ kind: "slam", weight: 2 });
+    if (frac <= 0.66 && cd.mark <= 0 && hasLineOfSight(e.x, e.y, state.player.x, state.player.y)) {
+      options.push({ kind: "mark", weight: 3 });
+    }
+  } else if (d <= 7) {
+    if (cd.charge <= 0) options.push({ kind: "charge", weight: 5 });
+    options.push({ kind: "advance", weight: 2 });
+    if (frac <= 0.5 && cd.nova <= 0) options.push({ kind: "nova", weight: 4 });
+    if (frac <= 0.66 && cd.mark <= 0 && hasLineOfSight(e.x, e.y, state.player.x, state.player.y)) {
+      options.push({ kind: "mark", weight: 2 });
+    }
+  } else {
+    // Far away
+    if (cd.charge <= 0) options.push({ kind: "charge", weight: 6 });
+    options.push({ kind: "advance", weight: 2 });
+    if (cd.nova <= 0 && frac <= 0.5) options.push({ kind: "nova", weight: 2 });
+  }
+
+  // Phase 3 buffs
+  if (frac <= 0.33) {
+    options.push({ kind: "advance", weight: 2 });
+    if (cd.nova <= 0) options.push({ kind: "nova", weight: 3 });
+  }
+
+  // Pick weighted
+  const total = options.reduce((s, o) => s + o.weight, 0);
+  let r = Math.random() * total;
+  let pick = options[0];
+  for (const o of options) { r -= o.weight; if (r <= 0) { pick = o; break; } }
+
+  switch (pick.kind) {
+    case "melee":
+      meleePlayer(e, frac <= 0.33 ? 1.3 : 1.1);
+      break;
+    case "advance":
+      advanceAndStrike(e, frac <= 0.33 ? 1.3 : 1);
+      break;
+    case "slam":
+      bossSlamTelegraph(e);
+      cd.slam = 4;
+      break;
+    case "charge":
+      bossCharge(e);
+      cd.charge = 5;
+      break;
+    case "nova":
+      fireBossNova(e);
+      cd.nova = 5;
+      break;
+    case "mark":
+      bossMarkAndSmite(e);
+      cd.mark = 6;
+      break;
+  }
 }
 
 const HANDLERS = {
   slime: pSlime, goblin: pGoblin, bat: pBat, skeleton: pSkeleton,
-  imp: pImp, wolf: pWolf, orc: pOrc, wraith: pWraith, boss: pBoss
+  imp: pImp, wolf: pWolf, orc: pOrc, wraith: pWraith,
+  spider: pSpider, ghoul: pGhoul, shaman: pShaman,
+  boss: pBoss
 };
 
 export function tickEnemies(dt) {
