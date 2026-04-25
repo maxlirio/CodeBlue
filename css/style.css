@@ -464,6 +464,72 @@ canvas {
 }
 .choice ul.class-spells li { padding: 1px 0; }
 
+/* --- Quest cutscene + tracker --- */
+
+.cutscene-frame {
+  width: min(100%, 640px);
+  display: flex;
+  justify-content: center;
+}
+.cutscene-frame canvas {
+  width: 100%;
+  max-width: 480px;
+  height: auto;
+  image-rendering: pixelated;
+  border: 1px solid var(--frame-lit);
+  background: #000;
+}
+.cutscene-dialogue {
+  width: min(100%, 640px);
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--frame-lit);
+  padding: 10px 14px;
+}
+.cutscene-dialogue strong {
+  color: var(--phosphor);
+  font-weight: normal;
+  letter-spacing: 0.04em;
+}
+.cutscene-npc {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.cutscene-npc span {
+  color: var(--ink-dim);
+  font-style: italic;
+  font-size: 11px;
+}
+.cutscene-dialogue p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.cutscene-status {
+  color: var(--phosphor);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-shadow: 0 0 8px rgba(92, 255, 138, 0.35);
+}
+
+.quest-line {
+  background: var(--panel-inset);
+  border: 1px solid var(--frame);
+  border-left: 2px solid var(--amber);
+  border-radius: 2px;
+  padding: 4px 8px;
+  font-size: 12px;
+  display: grid;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+.quest-line strong { color: var(--amber); font-weight: normal; }
+.quest-line .quest-progress { color: var(--ink-dim); font-size: 11px; }
+
 /* --- Shop header --- */
 
 .shop-header-line {

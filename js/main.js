@@ -5,6 +5,7 @@ import { loop } from "./render.js";
 import { attachInput, initTouch } from "./input.js";
 import { setSeed, randomSeedString } from "./rng.js";
 import { initApplyOverlay } from "./augments.js";
+import { initQuestUi } from "./quests.js";
 import "./audio.js";
 
 // Read a one-shot "play this dungeon" seed from the URL, then clear the URL.
@@ -19,5 +20,6 @@ renderClassChoices();
 attachInput();
 initTouch();
 initApplyOverlay();
+initQuestUi();
 loop();
 setMessage("Choose your class to start the run.");

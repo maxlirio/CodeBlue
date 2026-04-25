@@ -4,6 +4,7 @@ import { key } from "./utils.js";
 import { srnd as rnd, spick as pick, srand } from "./rng.js";
 import { makeRelic } from "./items.js";
 import { makeMagicScroll } from "./augments.js";
+import { isFindQuestForFloor, consumePlantedFindQuestItem } from "./quests.js";
 import { SPELL_LIBRARY, rankOf, isSpellForPlayer } from "./spells/index.js";
 import { makeBossName } from "./boss.js";
 
@@ -132,6 +133,12 @@ function placeChest(occupied) {
 
 function rollChestLoot() {
   const loot = { gold: 15 + Math.floor(srand() * 20) + state.floor * 2 };
+  // If a find-quest is targeting this floor, the first eligible chest carries
+  // its prize.
+  if (isFindQuestForFloor(state.floor)) {
+    const item = consumePlantedFindQuestItem(state.floor);
+    if (item) loot.questItem = item;
+  }
   const r = srand();
   if (r < 0.30) loot.potion = true;
   else if (r < 0.52) loot.relic = makeRelic(state.floor);

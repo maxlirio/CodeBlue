@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>Pixel Rogue</title>
-  <link rel="stylesheet" href="css/style.css?v=16" />
+  <link rel="stylesheet" href="css/style.css?v=17" />
 </head>
 <body>
   <div class="frame">
@@ -67,6 +67,31 @@
         <button class="choice" id="playAgain">new run</button>
         <button class="choice hidden" id="downloadHero">download hero ↓</button>
       </div>
+    </div>
+
+    <div id="cutsceneOverlay" class="overlay hidden">
+      <div class="cutscene-frame">
+        <canvas id="cutsceneCanvas" width="320" height="180"></canvas>
+      </div>
+      <div class="cutscene-dialogue">
+        <div class="cutscene-npc">
+          <strong id="cutsceneNpcName">—</strong>
+          <span id="cutsceneNpcTitle">—</span>
+        </div>
+        <p id="cutsceneIntro">…</p>
+      </div>
+      <div id="cutsceneQuests" class="choice-grid"></div>
+      <div id="cutsceneStatus" class="cutscene-status hidden">Preparing your tale…</div>
+    </div>
+
+    <div id="questCompleteOverlay" class="overlay hidden">
+      <h2>QUEST COMPLETE</h2>
+      <div class="result-card">
+        <div class="result-name" id="questCompleteName">—</div>
+        <div class="result-epitaph" id="questCompleteFlavor">—</div>
+        <div class="result-stats" id="questCompleteRewards"></div>
+      </div>
+      <button class="choice" id="questCompleteClose">continue</button>
     </div>
 
     <div id="tutorialOverlay" class="overlay hidden">
@@ -193,6 +218,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/main.js?v=16"></script>
+  <script type="module" src="js/main.js?v=17"></script>
 </body>
 </html>

@@ -11,6 +11,7 @@ import { SHOP_VENDORS } from "./config.js";
 import { openShop } from "./shop.js";
 import { SCHOOL_COLORS } from "./config.js";
 import { showResult } from "./result.js";
+import { showCutscene, recordDescend, recordItemPickup } from "./quests.js";
 
 const PLAYER_MOVE_COOLDOWN_MS = 110;
 
@@ -83,6 +84,10 @@ function openChest(chest) {
     } else {
       lines.push(`<span style="color:#b8b5e9">Scroll left behind (inventory full).</span>`);
     }
+  }
+  if (loot.questItem) {
+    lines.push(`<span style="color:#ffd166"><strong>${loot.questItem.name}</strong> — ${loot.questItem.desc}</span>`);
+    recordItemPickup(loot.questItem.name);
   }
   if (loot.spell) {
     const known = state.player.knownSpells.has(loot.spell.id);
@@ -225,6 +230,7 @@ function descend() {
     state.player.spellPoints += 1;
   }
   enterFloor(next, { fromAbove: true });
+  recordDescend(next);
   setMessage(firstVisit ? `You descend to floor ${next}.` : `You return to floor ${next}.`);
 }
 
@@ -268,6 +274,7 @@ function travelToFloor(target) {
     state.player.spellPoints += 1;
   }
   enterFloor(target, { fromAbove: true });
+  recordDescend(target);
   setMessage(firstVisit ? `You descend to floor ${target}.` : `You return to floor ${target}.`);
 }
 
@@ -425,6 +432,7 @@ export function chooseClass(c, opts = {}) {
   state.player.inventory = [];
   state.player.spellAugments = {};
   state.player.weaponEnchant = null;
+  state.player.quest = null;
   const starts = c.startSpells || ["bolt", "nova", "mend"];
   state.player.knownSpells = new Set(starts);
   state.player.spellRanks = Object.fromEntries(starts.map((id) => [id, 1]));
@@ -451,7 +459,12 @@ export function chooseClass(c, opts = {}) {
   ];
   recalcAttack();
   state.started = true;
-  enterFloor(0, { fromAbove: false });
   ui.classOverlay.classList.add("hidden");
-  setMessage(`${state.heroName || "You"} arrives in town as a ${c.name}.`);
+  setMessage("A figure waits at his desk before you reach town…");
+  // Cutscene first — quest-giver picks the player's run-defining errand,
+  // then the actual town loads.
+  showCutscene().then(() => {
+    enterFloor(0, { fromAbove: false });
+    setMessage(`${state.heroName || "You"} arrives in town as a ${c.name}.`);
+  });
 }

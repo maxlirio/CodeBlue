@@ -5,6 +5,7 @@ import {
   spawnBurst, spawnBeam, doScreenShake,
   hasStatus, applyStatus, removeStatus, addFloorEffect
 } from "./fx.js";
+import { recordEnemyKill } from "./quests.js";
 
 export function useWeaponAbility() {
   const enchant = state.player.weaponEnchant;
@@ -153,6 +154,7 @@ export function clearDeadEnemies() {
     enemy.dying = 18;
     if (enemy.boss) { killedBoss = true; state.stats.bossKills += 1; }
     state.stats.kills += 1;
+    recordEnemyKill(enemy.type, state.floor);
     const gold = enemy.boss ? rnd(18, 30) : rnd(2, 7);
     state.player.gold += gold;
     state.stats.goldEarned += gold;
@@ -188,6 +190,7 @@ export function playerAttack(enemy) {
     state.player.gold += gold;
     state.stats.goldEarned += gold;
     state.stats.kills += 1;
+    recordEnemyKill(enemy.type, state.floor);
     if (enemy.boss) {
       state.stats.bossKills += 1;
       state.player.spellPoints += 2;

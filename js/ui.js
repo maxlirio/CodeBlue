@@ -108,6 +108,23 @@ export function updateUi() {
   ui.gold.textContent = state.player.gold;
   ui.enemies.textContent = state.enemies.length;
   ui.bossStatus.textContent = state.bossAlive ? "Alive" : "Cleared";
+  // Quest tracker
+  const q = state.player.quest;
+  if (q && q.status === "active") {
+    let progress;
+    if (q.type === "slay") progress = `${q.killed || 0} / ${q.count} ${q.enemy}${q.count > 1 ? "s" : ""} slain`;
+    else if (q.type === "find") progress = `floor ${q.floor} — recover the relic`;
+    else if (q.type === "descend") progress = `reach floor ${q.floor}`;
+    else progress = "";
+    const giver = q.npcName ? ` <span style="color:var(--ink-dim)">— ${q.npcName}</span>` : "";
+    const beforeInventory = `<div class="hud-heading">Quest${giver}</div><div class="quest-line"><strong style="color:var(--amber)">${q.targetName}</strong><span class="quest-progress">${progress}</span></div>`;
+    ui.inventory.dataset.questBlock = beforeInventory;
+  } else if (q && q.status === "complete") {
+    ui.inventory.dataset.questBlock = `<div class="hud-heading">Quest</div><div class="quest-line"><strong style="color:var(--phosphor)">${q.targetName}</strong><span class="quest-progress" style="color:var(--phosphor)">complete · reward claimed</span></div>`;
+  } else {
+    ui.inventory.dataset.questBlock = "";
+  }
+
   if (state.player.inventory.length) {
     const items = state.player.inventory.map((item, i) =>
       `<li class="tappable" data-relic-idx="${i}">
@@ -115,9 +132,9 @@ export function updateUi() {
         <span class="name-desc"><span class="item-name">${item.name}</span> — <span class="item-desc">${item.desc || ""}</span></span>
       </li>`
     ).join("");
-    ui.inventory.innerHTML = `<div class="hud-heading">Items — tap or press 1–6</div><ul class="item-list">${items}</ul>`;
+    ui.inventory.innerHTML = (ui.inventory.dataset.questBlock || "") + `<div class="hud-heading">Items — tap or press 1–6</div><ul class="item-list">${items}</ul>`;
   } else {
-    ui.inventory.innerHTML = `<div class="hud-heading">Items</div><div class="hud-empty">empty — find relics, scrolls, and potions in chests and shops.</div>`;
+    ui.inventory.innerHTML = (ui.inventory.dataset.questBlock || "") + `<div class="hud-heading">Items</div><div class="hud-empty">empty — find relics, scrolls, and potions in chests and shops.</div>`;
   }
 
   const statuses = renderPlayerStatuses();

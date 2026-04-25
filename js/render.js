@@ -1,4 +1,4 @@
-import { state, canvas, ctx, portraitCtx } from "./state.js";
+import { state, ui, canvas, ctx, portraitCtx } from "./state.js";
 import {
   tileSize, cols, rows, COLORS, STATUS_DEFS,
   ENEMY_TYPES, BOSS_SPRITE, HERO_SPRITE, PORTRAIT_SPRITE,
@@ -337,6 +337,8 @@ function isPaused() {
   if (state.chestOpen) return true;
   if (state.discardOpen) return true;
   if (state.applyOpen) return true;
+  if (ui.cutsceneOverlay && !ui.cutsceneOverlay.classList.contains("hidden")) return true;
+  if (ui.questCompleteOverlay && !ui.questCompleteOverlay.classList.contains("hidden")) return true;
   return false;
 }
 

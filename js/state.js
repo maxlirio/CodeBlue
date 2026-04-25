@@ -35,7 +35,19 @@ export const ui = {
   applyTitle: document.getElementById("applyTitle"),
   applyMessage: document.getElementById("applyMessage"),
   applyChoices: document.getElementById("applyChoices"),
-  applyCancel: document.getElementById("applyCancel")
+  applyCancel: document.getElementById("applyCancel"),
+  cutsceneOverlay: document.getElementById("cutsceneOverlay"),
+  cutsceneCanvas: document.getElementById("cutsceneCanvas"),
+  cutsceneNpcName: document.getElementById("cutsceneNpcName"),
+  cutsceneNpcTitle: document.getElementById("cutsceneNpcTitle"),
+  cutsceneIntro: document.getElementById("cutsceneIntro"),
+  cutsceneQuests: document.getElementById("cutsceneQuests"),
+  cutsceneStatus: document.getElementById("cutsceneStatus"),
+  questCompleteOverlay: document.getElementById("questCompleteOverlay"),
+  questCompleteName: document.getElementById("questCompleteName"),
+  questCompleteFlavor: document.getElementById("questCompleteFlavor"),
+  questCompleteRewards: document.getElementById("questCompleteRewards"),
+  questCompleteClose: document.getElementById("questCompleteClose")
 };
 
 function makeRunNameParts() {
@@ -99,7 +111,8 @@ export const state = {
     spellRanks: { bolt: 1, nova: 1, mend: 1 },
     spellSlots: { z: "bolt", x: "nova", c: "mend", v: null },
     spellAugments: {},
-    weaponEnchant: null
+    weaponEnchant: null,
+    quest: null
   },
   stats: {
     kills: 0,
