@@ -6,7 +6,7 @@ import {
   hasStatus, applyStatus, removeStatus, addFloorEffect
 } from "./fx.js";
 import { recordEnemyKill } from "./quests.js";
-import { isGuestActive, syncRemoteDamage } from "./multi.js";
+import { isGuestActive, syncRemoteDamage, sendQuestKill } from "./multi.js";
 
 export function useWeaponAbility() {
   const enchant = state.player.weaponEnchant;
@@ -164,6 +164,7 @@ export function clearDeadEnemies() {
     if (enemy.boss) { killedBoss = true; state.stats.bossKills += 1; }
     state.stats.kills += 1;
     recordEnemyKill(enemy.type, state.floor);
+    sendQuestKill(enemy.type, state.floor);
     const gold = enemy.boss ? rnd(18, 30) : rnd(2, 7);
     state.player.gold += gold;
     state.stats.goldEarned += gold;
@@ -206,6 +207,7 @@ export function playerAttack(enemy) {
     state.stats.goldEarned += gold;
     state.stats.kills += 1;
     recordEnemyKill(enemy.type, state.floor);
+    sendQuestKill(enemy.type, state.floor);
     if (enemy.boss) {
       state.stats.bossKills += 1;
       state.player.spellPoints += 2;
@@ -303,6 +305,8 @@ export function tickRealtime() {
 }
 
 export function tickFloorEffects() {
+  // Host owns floor effects; guest just renders the host's snapshot.
+  if (isGuestActive()) return;
   for (const f of state.floorEffects) {
     if (f.kind === "burn") {
       const e = enemyAt(f.x, f.y);

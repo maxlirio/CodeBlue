@@ -5,7 +5,7 @@ import {
   hasStatus, applyStatus, isWallBlocked
 } from "./fx.js";
 import { playerTakeDamage, clearDeadEnemies } from "./combat.js";
-import { isGuestActive, isHostActive, broadcastEnemyDeltas, deliverPlayerHitToGuest, multi } from "./multi.js";
+import { isGuestActive, isHostActive, broadcastEnemyDeltas, deliverPlayerHitToGuest, multi, sendFloorEffects } from "./multi.js";
 
 function stepTo(enemy, tx, ty, { ethereal = false } = {}) {
   if (!inBounds(tx, ty)) return false;
@@ -475,5 +475,10 @@ export function tickEnemies(dt) {
   }
   clearDeadEnemies();
   // Host: push state deltas after every tick so the guest stays synced.
-  if (isHostActive()) broadcastEnemyDeltas();
+  if (isHostActive()) {
+    broadcastEnemyDeltas();
+    // Floor effects (burn tiles, mines, traps, walls) churn slowly. Send
+    // a fresh snapshot every tick — list is small and always up to date.
+    sendFloorEffects();
+  }
 }

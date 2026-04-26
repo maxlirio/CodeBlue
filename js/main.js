@@ -27,6 +27,31 @@ initChat();
 loop();
 setMessage("Choose your class to start the run.");
 
+// Wire the partner-disconnect overlay.
+import("./multi.js").then(({ setDisconnectHandler, reset, multi: m, isMultiplayer }) => {
+  setDisconnectHandler(() => {
+    if (!m.enabled) return;
+    if (ui.disconnectOverlay) ui.disconnectOverlay.classList.remove("hidden");
+  });
+  if (ui.continueSoloBtn) {
+    ui.continueSoloBtn.addEventListener("click", () => {
+      ui.disconnectOverlay.classList.add("hidden");
+      reset();
+      // Clear partner avatar
+      if (ui.partnerCard) ui.partnerCard.classList.add("hidden");
+      if (ui.chatBox) ui.chatBox.classList.add("hidden");
+      setMessage("Continuing solo. Your run carries on.");
+    });
+  }
+  if (ui.endRunBtn) {
+    ui.endRunBtn.addEventListener("click", () => {
+      // Reload to a clean class screen
+      location.hash = "";
+      location.reload();
+    });
+  }
+});
+
 if (ui.playWithFriendsBtn) {
   ui.playWithFriendsBtn.addEventListener("click", async () => {
     const result = await openMultiOverlay();

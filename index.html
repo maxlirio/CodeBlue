@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=22" />
+  <link rel="stylesheet" href="css/style.css?v=23" />
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
@@ -94,6 +94,15 @@
       <h2>PLAY WITH FRIENDS</h2>
       <div id="multiStage"></div>
       <button class="choice" id="multiPlayBtn" style="display:none">Begin</button>
+    </div>
+
+    <div id="disconnectOverlay" class="overlay hidden">
+      <h2>PARTNER LOST</h2>
+      <p>Your partner's connection dropped.</p>
+      <div class="actions">
+        <button class="choice" id="continueSoloBtn"><strong>Continue solo</strong><span>Keep your run going on your own.</span></button>
+        <button class="choice" id="endRunBtn"><strong>End the run</strong><span>Return to the class screen.</span></button>
+      </div>
     </div>
 
     <div id="questCompleteOverlay" class="overlay hidden">
@@ -236,6 +245,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/main.js?v=22"></script>
+  <script type="module" src="js/main.js?v=23"></script>
 </body>
 </html>

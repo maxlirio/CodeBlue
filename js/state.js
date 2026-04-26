@@ -56,7 +56,10 @@ export const ui = {
   partnerCard: document.getElementById("partnerCard"),
   chatBox: document.getElementById("chatBox"),
   chatLog: document.getElementById("chatLog"),
-  chatInput: document.getElementById("chatInput")
+  chatInput: document.getElementById("chatInput"),
+  disconnectOverlay: document.getElementById("disconnectOverlay"),
+  continueSoloBtn: document.getElementById("continueSoloBtn"),
+  endRunBtn: document.getElementById("endRunBtn")
 };
 
 function makeRunNameParts() {

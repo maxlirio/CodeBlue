@@ -14,7 +14,10 @@ import { showResult } from "./result.js";
 import { showCutscene, recordDescend, recordItemPickup } from "./quests.js";
 import {
   sendPosition, sendFloor, sendHello,
-  sendEnemyList, sendChestList, clearEnemySnap, isHostActive
+  sendEnemyList, sendChestList, clearEnemySnap, isHostActive,
+  isGuestActive, syncOpenChest, broadcastChestOpened,
+  sendShopVisit, sendQuestPickup, sendQuestDescend,
+  multi, sendPvpHit, sendFollowFloor
 } from "./multi.js";
 
 const PLAYER_MOVE_COOLDOWN_MS = 110;
@@ -61,6 +64,10 @@ function learnOrRankSpell(spell, nx, ny) {
 
 function openChest(chest) {
   chest.opened = true;
+  // Multiplayer: tell the partner this chest is now open. Loot is local
+  // to the opener's client — each player gets their own treasures.
+  if (isGuestActive()) syncOpenChest(chest.id);
+  if (isHostActive()) broadcastChestOpened(chest.id);
   const { loot } = chest;
   const lines = [];
   if (loot.gold) {
@@ -92,6 +99,7 @@ function openChest(chest) {
   if (loot.questItem) {
     lines.push(`<span style="color:#ffd166"><strong>${loot.questItem.name}</strong> — ${loot.questItem.desc}</span>`);
     recordItemPickup(loot.questItem.name);
+    sendQuestPickup(loot.questItem.name);
   }
   if (loot.spell) {
     const known = state.player.knownSpells.has(loot.spell.id);
@@ -247,6 +255,8 @@ function descend() {
   }
   enterFloor(next, { fromAbove: true });
   recordDescend(next);
+  sendQuestDescend(next);
+  sendFollowFloor(next);
   setMessage(firstVisit ? `You descend to floor ${next}.` : `You return to floor ${next}.`);
 }
 
@@ -260,7 +270,21 @@ function ascend() {
   snapshotFloor();
   const prev = state.floor - 1;
   enterFloor(prev, { fromAbove: false });
+  sendFollowFloor(prev);
   setMessage(prev === 0 ? "You climb back up to town." : `You ascend to floor ${prev}.`);
+}
+
+// Auto-follow when partner descends — called by multi.js handler.
+export function followToFloor(target) {
+  if (state.over || !state.started) return;
+  if (target === state.floor) return;
+  if (target < 0 || target > maxFloor) return;
+  if (state.shopInterior) return; // ignore while shopping
+  // Town has no clear-required gate; for dungeon floors we just go (the
+  // partner already left).
+  snapshotFloor();
+  enterFloor(target, { fromAbove: target < state.floor });
+  setMessage(`You follow your partner to floor ${target === 0 ? "town" : target}.`);
 }
 
 function eligibleFloors() {
@@ -291,6 +315,8 @@ function travelToFloor(target) {
   }
   enterFloor(target, { fromAbove: true });
   recordDescend(target);
+  sendQuestDescend(target);
+  sendFollowFloor(target);
   setMessage(firstVisit ? `You descend to floor ${target}.` : `You return to floor ${target}.`);
 }
 
@@ -347,6 +373,7 @@ export function enterShopInterior(kind) {
     returnPos: { x: state.player.x, y: state.player.y }
   };
   buildShopInterior(kind);
+  sendShopVisit(kind, true);
   const v = SHOP_VENDORS[kind];
   if (v) setMessage(`${v.name}, ${v.title.toLowerCase()}: "${pickFrom(v.greet)}"`);
   else setMessage("You step inside.");
@@ -372,6 +399,7 @@ export function exitShopInterior() {
   state.townBackup = null;
   const kind = state.shopInterior?.kind;
   state.shopInterior = null;
+  if (kind) sendShopVisit(kind, false);
   const v = kind && SHOP_VENDORS[kind];
   if (v) setMessage(`"${pickFrom(v.farewell)}"`);
   else setMessage("You step back outside.");
@@ -412,6 +440,18 @@ export function tryMove(dx, dy) {
 
   const foe = enemyAt(nx, ny);
   if (foe) { playerAttack(foe); return; }
+
+  // PvP: bumping into the partner deals damage instead of stepping onto them.
+  if (multi.enabled && multi.connected && multi.mode === "pvp" &&
+      multi.partner && multi.partner.floor === state.floor &&
+      multi.partner.x === nx && multi.partner.y === ny) {
+    const dmg = rnd(state.player.atk - 1, state.player.atk + 3);
+    sendPvpHit(dmg, state.heroName || "your rival");
+    spawnBurst(nx, ny, "#ff7a82", 9);
+    setMessage(`You strike ${multi.partner.name} for ${dmg}.`);
+    state.player.moveTimer = 200;
+    return;
+  }
 
   state.player.x = nx;
   state.player.y = ny;

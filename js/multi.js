@@ -59,7 +59,10 @@ export const multi = {
   partnerReady: false,
   connected: false,
   partner: null,          // { name, className, color, x, y, floor, alive }
-  pendingHostStartCallback: null
+  pendingHostStartCallback: null,
+  rttMs: null,
+  lastPingAt: 0,
+  pingTimer: null
 };
 
 const PARTNER_COLORS = { coop: "#7bdff2", pvp: "#ff7a82" };
@@ -141,11 +144,20 @@ function updatePartnerCard() {
   const hpPct = p.maxHp ? Math.max(0, Math.min(1, p.hp / p.maxHp)) : 0;
   ui.partnerCard.style.borderColor = p.color;
   ui.partnerCard.classList.remove("hidden");
+  const rtt = multi.rttMs;
+  let rttClass = "ping good", rttLabel = "—";
+  if (rtt != null) {
+    rttLabel = `${Math.round(rtt)}ms`;
+    if (rtt < 100) rttClass = "ping good";
+    else if (rtt < 250) rttClass = "ping warn";
+    else rttClass = "ping err";
+  }
   ui.partnerCard.innerHTML =
     `<div class="partner-name" style="color:${p.color}">${escapeHtml(p.name)} <span class="partner-class">· ${escapeHtml(p.className)}</span></div>` +
     `<div class="partner-meta">${sameFloor ? "<b>here</b>" : floorLabel}${p.maxHp ? ` · HP ${p.hp}/${p.maxHp}` : ""}</div>` +
     `<div class="partner-hp"><div class="partner-hp-fill" style="width:${Math.round(hpPct * 100)}%; background:${p.color}"></div></div>` +
-    `<div class="partner-mode">${multi.mode === "pvp" ? "PvP" : "Co-op"}</div>`;
+    `<div class="partner-mode">${multi.mode === "pvp" ? "PvP" : "Co-op"}</div>` +
+    `<div class="partner-ping ${rttClass}">${rttLabel}</div>`;
 }
 
 function handleMessage(msg) {
@@ -295,6 +307,73 @@ function handleMessage(msg) {
       updated = false;
       break;
     }
+    case "input_open_chest": {
+      if (multi.role !== "host") { updated = false; break; }
+      const c = (state.chests || []).find((x) => x.id === msg.id);
+      if (c && !c.opened) {
+        c.opened = true;
+        netSend({ type: "chest_state", id: c.id, opened: true });
+      }
+      updated = false;
+      break;
+    }
+    case "shop_visit": {
+      const name = multi.partner?.name || "Partner";
+      const shop = String(msg.kind || "").replace(/^./, (c) => c.toUpperCase());
+      appendChat("system", msg.entering ? `${name} entered the ${shop}.` : `${name} left the ${shop}.`, false);
+      updated = false;
+      break;
+    }
+    case "quest_kill": {
+      // Partner killed an enemy — credit our quest if it's a co-op slay quest.
+      if (multi.mode !== "coop") { updated = false; break; }
+      import("./quests.js").then(({ recordEnemyKill }) => recordEnemyKill(msg.enemyType, msg.floor));
+      updated = false;
+      break;
+    }
+    case "quest_pickup": {
+      if (multi.mode !== "coop") { updated = false; break; }
+      import("./quests.js").then(({ recordItemPickup }) => recordItemPickup(msg.itemName));
+      updated = false;
+      break;
+    }
+    case "quest_descend": {
+      if (multi.mode !== "coop") { updated = false; break; }
+      import("./quests.js").then(({ recordDescend }) => recordDescend(Number(msg.floor) || 0));
+      updated = false;
+      break;
+    }
+    case "pvp_hit": {
+      if (multi.mode !== "pvp") { updated = false; break; }
+      const reduced = applyPlayerHitLocal(Number(msg.dmg) || 0);
+      state.lastHitBy = String(msg.byName || (multi.partner?.name || "Partner"));
+      setMessage(`${state.lastHitBy} hits you for ${reduced}.`);
+      // Check for death / pvp kill
+      if (state.player.hp <= 0) {
+        state.player.hp = 0;
+        netSend({ type: "pvp_kill", victim: state.heroName || "you", killer: state.lastHitBy });
+      }
+      updated = false;
+      break;
+    }
+    case "follow_floor": {
+      // Partner is going to a new floor — auto-follow.
+      const target = Math.max(0, Math.min(15, Number(msg.floor) | 0));
+      if (target === state.floor) { updated = false; break; }
+      import("./turn.js").then(({ followToFloor }) => followToFloor(target));
+      updated = false;
+      break;
+    }
+    case "pvp_kill": {
+      // Show kill banner
+      const banner = document.createElement("div");
+      banner.className = "pvp-kill-banner";
+      banner.innerHTML = `<strong>${escapeHtml(msg.victim)}</strong> felled by <strong>${escapeHtml(msg.killer)}</strong>`;
+      document.body.appendChild(banner);
+      setTimeout(() => banner.remove(), 4000);
+      updated = false;
+      break;
+    }
     // ---- Guest receives host damage events + visuals ----
     case "playerHit": {
       if (multi.role !== "guest") { updated = false; break; }
@@ -327,8 +406,49 @@ function handleMessage(msg) {
       updated = false;
       break;
     }
+    case "ping": {
+      // Echo back as pong so the requester can measure RTT.
+      netSend({ type: "pong", t: msg.t });
+      updated = false;
+      break;
+    }
+    case "floor_effects": {
+      if (multi.role !== "guest") { updated = false; break; }
+      state.floorEffects = (msg.list || []).map((f) => ({ ...f }));
+      updated = false;
+      break;
+    }
+    case "pong": {
+      const sentAt = Number(msg.t) || 0;
+      if (sentAt > 0) {
+        multi.rttMs = Math.max(0, performance.now() - sentAt);
+        updatePartnerCard();
+      }
+      updated = false;
+      break;
+    }
   }
   if (updated) updatePartnerCard();
+}
+
+function startPingLoop() {
+  if (multi.pingTimer) clearInterval(multi.pingTimer);
+  multi.pingTimer = setInterval(() => {
+    if (!multi.connected) return;
+    const t = performance.now();
+    multi.lastPingAt = t;
+    netSend({ type: "ping", t });
+  }, 4000);
+}
+function stopPingLoop() {
+  if (multi.pingTimer) { clearInterval(multi.pingTimer); multi.pingTimer = null; }
+  multi.rttMs = null;
+}
+
+let disconnectHandler = null;
+export function setDisconnectHandler(fn) { disconnectHandler = fn; }
+function onPartnerDisconnect() {
+  if (disconnectHandler) disconnectHandler();
 }
 
 function applyPlayerHitLocal(amount) {
@@ -372,9 +492,12 @@ function attachStdHandlers() {
     multi.connected = true;
     appendChat("system", "Connection open. Greeting partner…", false);
     sendHello();
+    startPingLoop();
   });
   onClose(() => {
     multi.connected = false;
+    stopPingLoop();
+    onPartnerDisconnect();
     appendChat("system", "Partner disconnected.", false);
   });
   onError((err) => {
@@ -559,4 +682,60 @@ export function broadcastFxBeam(x1, y1, x2, y2, color) {
 export function broadcastFxShake(amt) {
   if (!isHostActive()) return;
   netSend({ type: "fx_shake", amt });
+}
+
+// ---- Floor effects (host owns) ----
+export function sendFloorEffects() {
+  if (!isHostActive()) return;
+  netSend({
+    type: "floor_effects",
+    list: (state.floorEffects || []).map((f) => ({ ...f }))
+  });
+}
+
+// ---- Chest opening ----
+// Guest tells host "I want to open chest X". Host marks it opened in its
+// authoritative state and broadcasts chest_state. Loot still resolves
+// locally on the opener (each player has their own inventory anyway).
+export function syncOpenChest(chestId) {
+  if (!isGuestActive()) return;
+  netSend({ type: "input_open_chest", id: chestId });
+}
+export function broadcastChestOpened(chestId) {
+  if (!isHostActive()) return;
+  netSend({ type: "chest_state", id: chestId, opened: true });
+}
+
+// ---- Shop / town interactions ----
+export function sendShopVisit(kind, entering) {
+  if (!isMultiplayer()) return;
+  netSend({ type: "shop_visit", kind, entering: !!entering });
+}
+
+// ---- Floor follow (co-op makes partner descend with you) ----
+export function sendFollowFloor(floor) {
+  if (!isMultiplayer()) return;
+  netSend({ type: "follow_floor", floor });
+}
+
+// ---- PvP friendly fire ----
+// Either side can melee the partner directly. Receiver applies the damage
+// to its local player.
+export function sendPvpHit(dmg, byName) {
+  if (!isMultiplayer() || multi.mode !== "pvp") return;
+  netSend({ type: "pvp_hit", dmg, byName });
+}
+
+// ---- Quest progress sharing (co-op only) ----
+export function sendQuestKill(enemyType, floor) {
+  if (!isMultiplayer() || multi.mode !== "coop") return;
+  netSend({ type: "quest_kill", enemyType, floor });
+}
+export function sendQuestPickup(itemName) {
+  if (!isMultiplayer() || multi.mode !== "coop") return;
+  netSend({ type: "quest_pickup", itemName });
+}
+export function sendQuestDescend(floor) {
+  if (!isMultiplayer() || multi.mode !== "coop") return;
+  netSend({ type: "quest_descend", floor });
 }
