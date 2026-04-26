@@ -5,6 +5,7 @@ import { srnd as rnd, spick as pick, srand } from "./rng.js";
 import { makeRelic } from "./items.js";
 import { makeMagicScroll } from "./augments.js";
 import { isFindQuestForFloor, consumePlantedFindQuestItem } from "./quests.js";
+import { isGuestActive } from "./multi.js";
 import { SPELL_LIBRARY, rankOf, isSpellForPlayer } from "./spells/index.js";
 import { makeBossName } from "./boss.js";
 
@@ -43,6 +44,7 @@ function placeEnemy(occupied, isBoss) {
     const protocol = isBoss ? "boss" : type.protocol;
     const actInterval = isBoss ? 660 : type.actInterval;
     state.enemies.push({
+      id: state.nextEnemyId++,
       x: pos.x,
       y: pos.y,
       type: isBoss ? "boss" : type.id,
@@ -106,16 +108,25 @@ export function buildFloor() {
   state.chests = [];
   const occupied = new Set([key(state.player.x, state.player.y), key(state.stairs.x, state.stairs.y)]);
 
-  const enemyCount = 2 + Math.floor(state.floor * 1.1);
-  for (let i = 0; i < enemyCount; i++) placeEnemy(occupied, false);
+  // In multiplayer the guest mirrors the host's authoritative spawns, so
+  // we skip enemy + chest placement entirely on the guest's side. The
+  // guest will receive an "enemies" / "chests" broadcast right after.
+  if (!isGuestActive()) {
+    const enemyCount = 2 + Math.floor(state.floor * 1.1);
+    for (let i = 0; i < enemyCount; i++) placeEnemy(occupied, false);
 
-  if (state.floor % 5 === 0) {
-    state.bossAlive = true;
-    placeEnemy(occupied, true);
+    if (state.floor % 5 === 0) {
+      state.bossAlive = true;
+      placeEnemy(occupied, true);
+    }
+
+    const chestCount = 2 + Math.floor(state.floor / 3);
+    for (let i = 0; i < chestCount; i++) placeChest(occupied);
+  } else {
+    // Guest still tracks bossAlive based on floor — it'll be confirmed
+    // by host broadcasts once enemies arrive.
+    state.bossAlive = state.floor % 5 === 0;
   }
-
-  const chestCount = 2 + Math.floor(state.floor / 3);
-  for (let i = 0; i < chestCount; i++) placeChest(occupied);
 }
 
 function placeChest(occupied) {
@@ -126,7 +137,7 @@ function placeChest(occupied) {
     const k = key(pos.x, pos.y);
     if (occupied.has(k)) continue;
     occupied.add(k);
-    state.chests.push({ x: pos.x, y: pos.y, opened: false, loot: rollChestLoot() });
+    state.chests.push({ id: `c${state.floor}-${state.chests.length + 1}`, x: pos.x, y: pos.y, opened: false, loot: rollChestLoot() });
     break;
   }
 }

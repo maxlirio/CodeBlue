@@ -6,6 +6,7 @@ import {
   hasStatus, applyStatus, removeStatus, addFloorEffect
 } from "./fx.js";
 import { recordEnemyKill } from "./quests.js";
+import { isGuestActive } from "./multi.js";
 
 export function useWeaponAbility() {
   const enchant = state.player.weaponEnchant;
@@ -168,6 +169,9 @@ export function clearDeadEnemies() {
 }
 
 export function cullDyingEnemies() {
+  // Guest: never decrement; the host's broadcasts manage dying counters
+  // and emit explicit enemy_remove messages when an enemy is gone.
+  if (isGuestActive()) return;
   state.enemies = state.enemies.filter((e) => {
     if (e.hp > 0) return true;
     if (e.dying > 0) { e.dying -= 1; return true; }

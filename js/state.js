@@ -70,6 +70,7 @@ function makeRunNameParts() {
 export const state = {
   floor: 0,
   floorCache: {},
+  nextEnemyId: 1,
   map: [],
   rooms: [],
   enemies: [],

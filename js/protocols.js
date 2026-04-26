@@ -5,6 +5,7 @@ import {
   hasStatus, applyStatus, isWallBlocked
 } from "./fx.js";
 import { playerTakeDamage, clearDeadEnemies } from "./combat.js";
+import { isGuestActive, isHostActive, broadcastEnemyDeltas } from "./multi.js";
 
 function stepTo(enemy, tx, ty, { ethereal = false } = {}) {
   if (!inBounds(tx, ty)) return false;
@@ -437,6 +438,8 @@ const HANDLERS = {
 };
 
 export function tickEnemies(dt) {
+  // Guest: enemy state arrives via host broadcasts; do not tick AI here.
+  if (isGuestActive()) return;
   for (const e of state.enemies) {
     if (e.hp <= 0) continue;
     if (e.protoState) {
@@ -456,4 +459,6 @@ export function tickEnemies(dt) {
     }
   }
   clearDeadEnemies();
+  // Host: push state deltas after every tick so the guest stays synced.
+  if (isHostActive()) broadcastEnemyDeltas();
 }

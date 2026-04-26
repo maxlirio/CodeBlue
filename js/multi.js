@@ -1,14 +1,46 @@
-// CodeBlue multiplayer (Phase 1: presence + same-seed dungeon + chat).
+// CodeBlue multiplayer.
 //
-// Wire protocol over PeerJS data channel:
+// Architecture (Phase 2):
+//   * The HOST owns shared world state — enemy list, enemy AI ticks,
+//     chest open/loot, floor effects. The host runs the authoritative
+//     simulation and broadcasts the resulting deltas.
+//   * The GUEST does not run enemy AI; it mirrors the host's broadcasts
+//     and renders. Player input that affects shared state (attacks, casts,
+//     chest opens, descend) is sent to the host as input messages; the
+//     host applies them and broadcasts the result.
+//   * Each client owns its own player state (HP, MP, inventory). Damage
+//     to a player is computed by the host but delivered as a "playerHit"
+//     event to the targeted side, which applies it locally.
+//
+// Wire protocol over the PeerJS data channel:
+//   --- handshake / presence (Phase 1) ---
 //   { type: "hello",  name, className, color }
-//   { type: "seed",   seed, mode }   // host -> guest, mode = "coop" | "pvp"
-//   { type: "ready" }                // signal that local player has chosen class
-//   { type: "pos",    x, y, floor }
-//   { type: "floor",  floor }        // when local descends/ascends
+//   { type: "seed",   seed, mode }    // host -> guest, mode = "coop" | "pvp"
+//   { type: "ready" }                 // local player has chosen a class
+//   { type: "pos",    x, y, floor, hp, maxHp }
+//   { type: "floor",  floor }
 //   { type: "chat",   text }
 //
-// Phase 1 only syncs presence — enemies and chests are still per-client.
+//   --- world state, host -> guest (Phase 2) ---
+//   { type: "enemies", floor, list }              // sent on floor entry
+//   { type: "enemy_delta", id, x?, y?, hp?, statuses?, dying? }
+//   { type: "enemy_remove", id }
+//   { type: "chests",  list }                     // sent on floor entry
+//   { type: "chest_state", id, opened }
+//
+//   --- inputs, guest -> host (Phase 2) ---
+//   { type: "input_attack", id }                  // guest melee'd enemy id
+//   { type: "input_cast", spellId, tx, ty, charged }
+//   { type: "input_ability", tx, ty }
+//   { type: "input_open_chest", id }
+//
+//   --- damage / fx, host -> guest (Phase 2) ---
+//   { type: "playerHit", side, dmg, byName?, status? }
+//   { type: "spell_fx", origin, target, color, kind }
+//
+// Phase 1 ships above the dotted line (handshake / presence / chat).
+// Phase 2 ships everything below it. Each task in Phase 2 grows this file
+// with new handlers and new outbound helpers.
 
 import {
   hostRoom, joinRoom, send as netSend, onMessage, onOpen, onClose, onError,
@@ -169,6 +201,62 @@ function handleMessage(msg) {
       updated = false;
       break;
     }
+    case "enemies": {
+      // Guest receives the host's full enemy list for the current floor.
+      // Replace local enemies with the broadcast list.
+      if (Number(msg.floor) !== state.floor) { updated = false; break; }
+      state.enemies = (msg.list || []).map((e) => ({
+        ...e,
+        statuses: (e.statuses || []).map((s) => ({ ...s })),
+        // Guest never runs AI for these; protoState/actTimer are unused.
+        protoState: {},
+        actTimer: 0
+      }));
+      updated = false;
+      break;
+    }
+    case "enemy_delta": {
+      const e = state.enemies.find((x) => x.id === msg.id);
+      if (e) {
+        if (msg.x !== undefined) e.x = msg.x;
+        if (msg.y !== undefined) e.y = msg.y;
+        if (msg.hp !== undefined) e.hp = msg.hp;
+        if (msg.dying !== undefined) e.dying = msg.dying;
+        if (Array.isArray(msg.statuses)) e.statuses = msg.statuses.map((s) => ({ ...s }));
+      }
+      updated = false;
+      break;
+    }
+    case "enemy_remove": {
+      state.enemies = state.enemies.filter((x) => x.id !== msg.id);
+      updated = false;
+      break;
+    }
+    case "chests": {
+      if (Number(msg.floor) !== state.floor) { updated = false; break; }
+      // Preserve any local loot fields the guest's chests already have
+      // (so opening on the guest still works for now). We'll route opens
+      // through the host in a later task.
+      const incomingById = new Map((msg.list || []).map((c) => [c.id, c]));
+      state.chests = (state.chests || []).map((c) => {
+        const inc = incomingById.get(c.id);
+        if (!inc) return c;
+        return { ...c, opened: !!inc.opened };
+      });
+      // Add any host-known chest the guest somehow lacks (shouldn't happen
+      // with a synced seed, but safe).
+      for (const inc of (msg.list || [])) {
+        if (!state.chests.find((c) => c.id === inc.id)) state.chests.push({ ...inc });
+      }
+      updated = false;
+      break;
+    }
+    case "chest_state": {
+      const c = (state.chests || []).find((x) => x.id === msg.id);
+      if (c) c.opened = !!msg.opened;
+      updated = false;
+      break;
+    }
   }
   if (updated) updatePartnerCard();
 }
@@ -263,6 +351,85 @@ function escapeHtml(s) {
 }
 
 export function isMultiplayer() { return multi.enabled && multi.connected; }
+export function isHost() { return multi.role === "host"; }
+export function isGuest() { return multi.role === "guest"; }
+// Is this client supposed to skip authoritative simulation work (enemy AI,
+// chest mutations, floor effects)? Only when we're a connected guest.
+export function isGuestActive() { return multi.enabled && multi.connected && multi.role === "guest"; }
+// Should this client broadcast world state to its peer?
+export function isHostActive() { return multi.enabled && multi.connected && multi.role === "host"; }
+
 export function partnerOnSameFloor() {
   return !!(multi.partner && multi.partner.floor === state.floor);
 }
+
+// ---- Phase 2: world state broadcasts (host only) ----
+
+function serializeEnemy(e) {
+  return {
+    id: e.id, type: e.type, name: e.name,
+    x: e.x, y: e.y,
+    hp: e.hp, maxHp: e.maxHp,
+    atk: e.atk, baseAtk: e.baseAtk,
+    vision: e.vision,
+    weak: e.weak || [], resist: e.resist || [],
+    boss: !!e.boss,
+    statuses: (e.statuses || []).map((s) => ({ ...s })),
+    actInterval: e.actInterval,
+    protocol: e.protocol,
+    dying: e.dying || 0
+  };
+}
+
+function serializeChest(c) {
+  // Exclude loot — only the opener's client needs it.
+  return { id: c.id, x: c.x, y: c.y, opened: !!c.opened };
+}
+
+export function sendEnemyList(floor) {
+  if (!isHostActive()) return;
+  const list = (state.enemies || []).map(serializeEnemy);
+  netSend({ type: "enemies", floor, list });
+}
+
+export function sendChestList(floor) {
+  if (!isHostActive()) return;
+  const list = (state.chests || []).map(serializeChest);
+  netSend({ type: "chests", floor, list });
+}
+
+// Track which enemies changed since last broadcast so deltas stay small.
+const enemySnap = new Map(); // id -> last sent snapshot
+
+function snapKey(e) {
+  // Build a small fingerprint of fields that get rendered.
+  return `${e.x},${e.y},${e.hp},${e.dying || 0},${(e.statuses || []).map((s) => `${s.kind}:${s.turns}:${s.power}`).join("|")}`;
+}
+
+export function broadcastEnemyDeltas() {
+  if (!isHostActive()) return;
+  const seen = new Set();
+  for (const e of state.enemies) {
+    seen.add(e.id);
+    const key = snapKey(e);
+    if (enemySnap.get(e.id) === key) continue;
+    enemySnap.set(e.id, key);
+    netSend({
+      type: "enemy_delta",
+      id: e.id,
+      x: e.x, y: e.y,
+      hp: e.hp,
+      dying: e.dying || 0,
+      statuses: (e.statuses || []).map((s) => ({ ...s }))
+    });
+  }
+  // Removals — enemies that were in snap but not in current list anymore.
+  for (const id of [...enemySnap.keys()]) {
+    if (!seen.has(id)) {
+      enemySnap.delete(id);
+      netSend({ type: "enemy_remove", id });
+    }
+  }
+}
+
+export function clearEnemySnap() { enemySnap.clear(); }

@@ -12,7 +12,10 @@ import { openShop } from "./shop.js";
 import { SCHOOL_COLORS } from "./config.js";
 import { showResult } from "./result.js";
 import { showCutscene, recordDescend, recordItemPickup } from "./quests.js";
-import { sendPosition, sendFloor, sendHello } from "./multi.js";
+import {
+  sendPosition, sendFloor, sendHello,
+  sendEnemyList, sendChestList, clearEnemySnap, isHostActive
+} from "./multi.js";
 
 const PLAYER_MOVE_COOLDOWN_MS = 110;
 
@@ -171,6 +174,14 @@ function enterFloor(floor, { fromAbove }) {
   } else if (!fromAbove && state.stairs) {
     state.player.x = state.stairs.x;
     state.player.y = state.stairs.y;
+  }
+  // Multiplayer: host broadcasts the authoritative enemy + chest list
+  // for this floor. Reset the delta snapshot so subsequent ticks emit
+  // a fresh stream.
+  if (isHostActive()) {
+    clearEnemySnap();
+    sendEnemyList(floor);
+    sendChestList(floor);
   }
   sendFloor(floor);
   sendPosition();
