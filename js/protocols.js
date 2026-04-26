@@ -5,7 +5,7 @@ import {
   hasStatus, applyStatus, isWallBlocked
 } from "./fx.js";
 import { playerTakeDamage, clearDeadEnemies } from "./combat.js";
-import { isGuestActive, isHostActive, broadcastEnemyDeltas } from "./multi.js";
+import { isGuestActive, isHostActive, broadcastEnemyDeltas, deliverPlayerHitToGuest, multi } from "./multi.js";
 
 function stepTo(enemy, tx, ty, { ethereal = false } = {}) {
   if (!inBounds(tx, ty)) return false;
@@ -48,6 +48,21 @@ function randomStep(enemy) {
 
 function meleePlayer(enemy, mult = 1, label = null) {
   const raw = Math.max(1, Math.floor((enemy.atk + Math.floor(state.floor / 3)) * mult));
+  // In multiplayer, prefer hitting whichever player is adjacent. If only the
+  // partner is adjacent, deliver the hit to them. If both, 50/50.
+  if (isHostActive() && multi.partner && multi.partner.floor === state.floor) {
+    const dHost = distance(enemy, state.player);
+    const dPartner = distance(enemy, multi.partner);
+    const partnerAdj = dPartner === 1;
+    const hostAdj = dHost === 1;
+    if (partnerAdj && (!hostAdj || Math.random() < 0.5)) {
+      // Strike partner — broadcast to guest.
+      deliverPlayerHitToGuest(raw, enemy.name);
+      spawnBurst(multi.partner.x, multi.partner.y, "#ff758f", 7);
+      setMessage(`${enemy.name} hits ${multi.partner.name || "your partner"}.`);
+      return raw;
+    }
+  }
   const dmg = playerTakeDamage(raw);
   spawnBurst(state.player.x, state.player.y, "#ff758f", 7);
   state.lastHitBy = enemy.name;

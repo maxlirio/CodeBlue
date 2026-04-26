@@ -257,8 +257,94 @@ function handleMessage(msg) {
       updated = false;
       break;
     }
+    // ---- Host receives guest combat mutations ----
+    case "remote_damage": {
+      // Apply damage to host's authoritative enemy. Skip multipliers — guest
+      // already applied them. Mark rewardsGranted so host doesn't double-credit.
+      if (multi.role !== "host") { updated = false; break; }
+      const e = state.enemies.find((x) => x.id === msg.id);
+      if (e) {
+        e.hp -= Math.max(0, Number(msg.amount) || 0);
+        if (e.hp <= 0 && !e.rewardsGranted) {
+          e.rewardsGranted = true;
+          e.dying = e.dying || 18;
+        }
+      }
+      updated = false;
+      break;
+    }
+    case "remote_apply_status": {
+      if (multi.role !== "host") { updated = false; break; }
+      const e = state.enemies.find((x) => x.id === msg.id);
+      if (e) {
+        const cur = (e.statuses ||= []).find((s) => s.kind === msg.kind);
+        if (cur) {
+          cur.turns = Math.max(cur.turns, Number(msg.turns) || 0);
+          cur.power = Math.max(cur.power, Number(msg.power) || 1);
+        } else {
+          e.statuses.push({ kind: msg.kind, turns: Number(msg.turns) || 1, power: Number(msg.power) || 1 });
+        }
+      }
+      updated = false;
+      break;
+    }
+    case "remote_remove_status": {
+      if (multi.role !== "host") { updated = false; break; }
+      const e = state.enemies.find((x) => x.id === msg.id);
+      if (e && e.statuses) e.statuses = e.statuses.filter((s) => s.kind !== msg.kind);
+      updated = false;
+      break;
+    }
+    // ---- Guest receives host damage events + visuals ----
+    case "playerHit": {
+      if (multi.role !== "guest") { updated = false; break; }
+      const reduced = applyPlayerHitLocal(Number(msg.dmg) || 0);
+      if (msg.byName) state.lastHitBy = String(msg.byName);
+      if (msg.status) {
+        // Apply status to local player
+        const cur = state.player.statuses.find((s) => s.kind === msg.status);
+        if (cur) cur.turns = Math.max(cur.turns, 4);
+        else state.player.statuses.push({ kind: msg.status, turns: 4, power: 1 });
+      }
+      // setMessage so the player sees what hit them
+      setMessage(`${msg.byName || "An enemy"} hits you for ${reduced}.`);
+      updated = false;
+      break;
+    }
+    case "fx_burst": {
+      const t = ensureBurst(msg.x, msg.y, msg.color, msg.count);
+      updated = false;
+      break;
+    }
+    case "fx_beam": {
+      ensureBeam(msg.x1, msg.y1, msg.x2, msg.y2, msg.color);
+      updated = false;
+      break;
+    }
+    case "fx_shake": {
+      // Imported lazily to avoid pulling fx.js into this module top.
+      import("./fx.js").then(({ doScreenShake }) => doScreenShake(Number(msg.amt) || 4));
+      updated = false;
+      break;
+    }
   }
   if (updated) updatePartnerCard();
+}
+
+function applyPlayerHitLocal(amount) {
+  const ward = state.player.statuses && state.player.statuses.find((s) => s.kind === "ward");
+  const reduced = ward ? Math.max(1, Math.floor(amount * (1 - ward.power / 100))) : amount;
+  state.player.hp -= reduced;
+  return reduced;
+}
+
+// Lazy-import fx so we can call from the message handler without forcing
+// fx.js to be eager-imported by this module.
+function ensureBurst(x, y, color, count) {
+  import("./fx.js").then(({ spawnBurst }) => spawnBurst(x, y, color, count || 8));
+}
+function ensureBeam(x1, y1, x2, y2, color) {
+  import("./fx.js").then(({ spawnBeam }) => spawnBeam(x1, y1, x2, y2, color));
 }
 
 // ---- Host start gate ----
@@ -433,3 +519,44 @@ export function broadcastEnemyDeltas() {
 }
 
 export function clearEnemySnap() { enemySnap.clear(); }
+
+// ---- Phase 2 combat: guest -> host mutation forwarding ----
+
+// Guests forward raw mutations to the host so the host's authoritative
+// state stays in sync after a guest action. The host's broadcastEnemyDeltas
+// then replays the result to both clients.
+
+export function syncRemoteDamage(enemyId, amount, school) {
+  if (!isGuestActive()) return;
+  netSend({ type: "remote_damage", id: enemyId, amount, school });
+}
+export function syncRemoteApplyStatus(enemyId, kind, turns, power) {
+  if (!isGuestActive()) return;
+  netSend({ type: "remote_apply_status", id: enemyId, kind, turns, power });
+}
+export function syncRemoteRemoveStatus(enemyId, kind) {
+  if (!isGuestActive()) return;
+  netSend({ type: "remote_remove_status", id: enemyId, kind });
+}
+
+// ---- Phase 2 combat: host -> guest damage delivery ----
+
+export function deliverPlayerHitToGuest(dmg, byName, status) {
+  if (!isHostActive()) return;
+  netSend({ type: "playerHit", side: "guest", dmg, byName, status });
+}
+
+// ---- Phase 2 visual fx broadcast (host -> guest) ----
+
+export function broadcastFxBurst(x, y, color, count) {
+  if (!isHostActive()) return;
+  netSend({ type: "fx_burst", x, y, color, count });
+}
+export function broadcastFxBeam(x1, y1, x2, y2, color) {
+  if (!isHostActive()) return;
+  netSend({ type: "fx_beam", x1, y1, x2, y2, color });
+}
+export function broadcastFxShake(amt) {
+  if (!isHostActive()) return;
+  netSend({ type: "fx_shake", amt });
+}

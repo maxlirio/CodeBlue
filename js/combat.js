@@ -6,7 +6,7 @@ import {
   hasStatus, applyStatus, removeStatus, addFloorEffect
 } from "./fx.js";
 import { recordEnemyKill } from "./quests.js";
-import { isGuestActive } from "./multi.js";
+import { isGuestActive, syncRemoteDamage } from "./multi.js";
 
 export function useWeaponAbility() {
   const enchant = state.player.weaponEnchant;
@@ -101,6 +101,9 @@ export function triggerWeaponEnchant(enemy) {
   }
   if (enchant.bonusDamage) {
     enemy.hp -= enchant.bonusDamage;
+    if (isGuestActive() && enemy.id !== undefined) {
+      syncRemoteDamage(enemy.id, enchant.bonusDamage, "physical");
+    }
   }
 }
 
@@ -137,6 +140,11 @@ export function damageEnemy(enemy, amount, school) {
   }
   if (state.castingDepth > 0) state.castingDamage = (state.castingDamage || 0) + dealt;
   if (shatter) setMessage(`SHATTER! ${enemy.name} takes ${dealt} ${school}.`);
+  // Multiplayer: forward the resulting damage to the host so its
+  // authoritative state mirrors the mutation.
+  if (isGuestActive() && enemy.id !== undefined && dealt > 0) {
+    syncRemoteDamage(enemy.id, dealt, school);
+  }
   return dealt;
 }
 
@@ -185,6 +193,9 @@ export function playerAttack(enemy) {
   const rolled = rollHit(rnd(state.player.atk - 1 + bonusAtk, state.player.atk + 3 + bonusAtk));
   const dmg = rolled.damage;
   enemy.hp -= Math.max(0, dmg);
+  if (isGuestActive() && enemy.id !== undefined && dmg > 0) {
+    syncRemoteDamage(enemy.id, dmg, "physical");
+  }
   spawnBurst(enemy.x, enemy.y, "#ff758f", 9);
   if (rolled.type === "miss") setMessage("You miss!");
   if (rolled.type === "crit") setMessage(`Critical hit! ${dmg} damage.`);
