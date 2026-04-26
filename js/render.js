@@ -77,10 +77,8 @@ function drawPartner() {
   const sprite = HERO_SPRITES[multi.partner.className] || HERO_SPRITE;
   const px = multi.partner.x * tileSize;
   const py = multi.partner.y * tileSize;
-  ctx.save();
-  ctx.globalAlpha = 0.55;
+  // Solid sprite — partner reads as a real character, not a ghost.
   drawSprite(ctx, sprite, px, py);
-  ctx.restore();
   // Mode-tinted halo so co-op partner is teal, pvp is reddish.
   // Always derive from current mode so a late-arriving "seed" message
   // (which is what carries the chosen mode to the guest) flips the color

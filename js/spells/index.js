@@ -4,6 +4,7 @@ import { spawnBurst, doScreenShake } from "../fx.js";
 import { setMessage } from "../utils.js";
 import { strokeReticle } from "./_draw.js";
 import { AUGMENT_BY_ID } from "../augments.js";
+import { multi, sendPvpHit } from "../multi.js";
 
 import * as bolt from "./bolt.js";
 import * as chain from "./chain.js";
@@ -178,6 +179,38 @@ export function castSpell(spell, tx, ty, { charged = false, _echoLevel = 0 } = {
   const chargeMul = charged ? 1.5 : 1;
   const rank = rankOf(spell.id);
   const pow = spellPowerNow();
+
+  // PvP: if the aim target is the partner's tile, route the hit to them
+  // and short-circuit the normal effect so we don't double-apply or
+  // miss in line-of-sight checks. Heal/buff/utility spells (cost > 0
+  // but no damage to enemies) still spend mana but don't hurt the
+  // partner — only damage-school spells convert.
+  if (multi.enabled && multi.connected && multi.mode === "pvp" &&
+      multi.partner && multi.partner.floor === state.floor &&
+      multi.partner.x === tx && multi.partner.y === ty &&
+      _echoLevel === 0) {
+    const isHealOrBuff = spell.school === "life" && (spell.targeting === "self" || spell.id === "mend" || spell.id === "regrow");
+    if (!isHealOrBuff) {
+      const roll = spellRoll();
+      if (roll.kind === "fizzle") {
+        setMessage(`${spell.name} fizzles. Half mana refunded.`);
+        spawnBurst(state.player.x, state.player.y, "#666", 8);
+        state.player.mana += Math.ceil(spell.cost * chargeMul * 0.5);
+        return { acted: true, offensive: false };
+      }
+      const isCrit = roll.kind === "crit";
+      const critMul = isCrit ? 1.7 : 1;
+      const baseDmg = Math.floor((7 + pow + rank * 2) * chargeMul * critMul);
+      spawnBurst(state.player.x, state.player.y, SCHOOL_COLORS[spell.school], 6 + (charged ? 8 : 0));
+      spawnBurst(tx, ty, SCHOOL_COLORS[spell.school], 14);
+      if (charged) doScreenShake(4);
+      if (isCrit) doScreenShake(3);
+      sendPvpHit(baseDmg, state.heroName || "your rival");
+      setMessage(`${spell.name} ${isCrit ? "CRITS " : "strikes "}${multi.partner.name} for ${baseDmg}.`);
+      state.stats.spellsCast += 1;
+      return { acted: true, offensive: true };
+    }
+  }
 
   const roll = spellRoll();
   if (roll.kind === "fizzle") {
