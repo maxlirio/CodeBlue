@@ -64,11 +64,12 @@ function renderHostSetup() {
   }
   document.getElementById("multiBackBtn").onclick = renderMenu;
   document.getElementById("multiOpenRoomBtn").onclick = async () => {
-    multi.mode = chosenMode;
     renderHostWaiting("opening room…");
     try {
       const code = await startHost();
-      // Generate a fresh seed and share with the guest once they connect.
+      // startHost() calls reset() internally, so set the chosen mode + seed
+      // *after* startHost, not before.
+      multi.mode = chosenMode;
       const seed = randomSeedString();
       multi.seed = seed;
       setSeed(seed);

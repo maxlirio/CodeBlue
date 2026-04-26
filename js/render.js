@@ -82,7 +82,10 @@ function drawPartner() {
   drawSprite(ctx, sprite, px, py);
   ctx.restore();
   // Mode-tinted halo so co-op partner is teal, pvp is reddish.
-  const color = multi.partner.color || (multi.mode === "pvp" ? "#ff7a82" : "#7bdff2");
+  // Always derive from current mode so a late-arriving "seed" message
+  // (which is what carries the chosen mode to the guest) flips the color
+  // even after the initial "hello" was processed.
+  const color = multi.mode === "pvp" ? "#ff7a82" : "#7bdff2";
   ctx.save();
   ctx.globalAlpha = 0.55 + 0.25 * Math.sin(Date.now() / 280);
   ctx.strokeStyle = color;

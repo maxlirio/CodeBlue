@@ -142,7 +142,8 @@ function updatePartnerCard() {
   const sameFloor = p.floor === state.floor;
   const floorLabel = p.floor === 0 ? "Town" : `Floor ${p.floor}`;
   const hpPct = p.maxHp ? Math.max(0, Math.min(1, p.hp / p.maxHp)) : 0;
-  ui.partnerCard.style.borderColor = p.color;
+  const liveColor = partnerColorForMode(multi.mode);
+  ui.partnerCard.style.borderColor = liveColor;
   ui.partnerCard.classList.remove("hidden");
   const rtt = multi.rttMs;
   let rttClass = "ping good", rttLabel = "—";
@@ -153,9 +154,9 @@ function updatePartnerCard() {
     else rttClass = "ping err";
   }
   ui.partnerCard.innerHTML =
-    `<div class="partner-name" style="color:${p.color}">${escapeHtml(p.name)} <span class="partner-class">· ${escapeHtml(p.className)}</span></div>` +
+    `<div class="partner-name" style="color:${liveColor}">${escapeHtml(p.name)} <span class="partner-class">· ${escapeHtml(p.className)}</span></div>` +
     `<div class="partner-meta">${sameFloor ? "<b>here</b>" : floorLabel}${p.maxHp ? ` · HP ${p.hp}/${p.maxHp}` : ""}</div>` +
-    `<div class="partner-hp"><div class="partner-hp-fill" style="width:${Math.round(hpPct * 100)}%; background:${p.color}"></div></div>` +
+    `<div class="partner-hp"><div class="partner-hp-fill" style="width:${Math.round(hpPct * 100)}%; background:${liveColor}"></div></div>` +
     `<div class="partner-mode">${multi.mode === "pvp" ? "PvP" : "Co-op"}</div>` +
     `<div class="partner-ping ${rttClass}">${rttLabel}</div>`;
 }
