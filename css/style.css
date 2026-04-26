@@ -420,6 +420,19 @@ canvas {
 }
 .item-list li.tappable:hover { border-color: var(--amber); background: #3a2e3e; }
 .item-list li.tappable:active { background: #2a1f2c; }
+.item-list li { grid-template-columns: 20px 1fr auto; }
+.gift-btn {
+  background: var(--mana);
+  color: var(--bg);
+  border: none;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.gift-btn:hover { transform: translateY(-1px); }
+.gift-btn:active { transform: translateY(1px); }
 .item-list li .num { color: var(--ink-dim); text-align: right; }
 .item-list li .name-desc { color: var(--ink); }
 .item-list li .name-desc .item-name { color: var(--amber); }

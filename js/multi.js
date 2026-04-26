@@ -245,31 +245,7 @@ function handleMessage(msg) {
       updated = false;
       break;
     }
-    case "chests": {
-      if (Number(msg.floor) !== state.floor) { updated = false; break; }
-      // Preserve any local loot fields the guest's chests already have
-      // (so opening on the guest still works for now). We'll route opens
-      // through the host in a later task.
-      const incomingById = new Map((msg.list || []).map((c) => [c.id, c]));
-      state.chests = (state.chests || []).map((c) => {
-        const inc = incomingById.get(c.id);
-        if (!inc) return c;
-        return { ...c, opened: !!inc.opened };
-      });
-      // Add any host-known chest the guest somehow lacks (shouldn't happen
-      // with a synced seed, but safe).
-      for (const inc of (msg.list || [])) {
-        if (!state.chests.find((c) => c.id === inc.id)) state.chests.push({ ...inc });
-      }
-      updated = false;
-      break;
-    }
-    case "chest_state": {
-      const c = (state.chests || []).find((x) => x.id === msg.id);
-      if (c) c.opened = !!msg.opened;
-      updated = false;
-      break;
-    }
+    // chests / chest_state messages removed: chests are per-player now
     // ---- Host receives guest combat mutations ----
     case "remote_damage": {
       // Apply damage to host's authoritative enemy. Skip multipliers — guest
@@ -308,12 +284,37 @@ function handleMessage(msg) {
       updated = false;
       break;
     }
-    case "input_open_chest": {
-      if (multi.role !== "host") { updated = false; break; }
-      const c = (state.chests || []).find((x) => x.id === msg.id);
-      if (c && !c.opened) {
-        c.opened = true;
-        netSend({ type: "chest_state", id: c.id, opened: true });
+    // input_open_chest removed — opens are local now
+    case "gift_item": {
+      // Reconstruct a usable item on the receiver side. For sigil scrolls
+      // we rebuild via makeMagicScroll so the .use binding is intact.
+      const inv = state.player.inventory;
+      if (inv.length >= 6) {
+        appendChat("system", `${multi.partner?.name || "Partner"} tried to gift you ${msg.item?.name || "an item"}, but your bag is full.`, false);
+        updated = false;
+        break;
+      }
+      const fallback = {
+        name: String(msg.item?.name || "Gift"),
+        desc: String(msg.item?.desc || ""),
+        consumeOnUse: msg.item?.consumeOnUse !== false,
+        use() { setMessage(`${this.name} has no power here. (Gifted from ${multi.partner?.name || "your partner"}.)`); }
+      };
+      const partnerName = multi.partner?.name || "Partner";
+      if (msg.item?.kind === "scroll" && msg.item.augmentId) {
+        import("./augments.js").then(({ makeMagicScroll }) => {
+          const rebuilt = makeMagicScroll(msg.item.augmentId) || fallback;
+          inv.push(rebuilt);
+          appendChat("system", `${partnerName} gifted you ${rebuilt.name}.`, false);
+          setMessage(`${partnerName} gifted you ${rebuilt.name}.`);
+        }).catch(() => {
+          inv.push(fallback);
+          appendChat("system", `${partnerName} gifted you ${fallback.name}.`, false);
+        });
+      } else {
+        inv.push(fallback);
+        appendChat("system", `${partnerName} gifted you ${fallback.name}.`, false);
+        setMessage(`${partnerName} gifted you ${fallback.name}.`);
       }
       updated = false;
       break;
@@ -357,11 +358,24 @@ function handleMessage(msg) {
       updated = false;
       break;
     }
-    case "follow_floor": {
-      // Partner is going to a new floor — auto-follow.
-      const target = Math.max(0, Math.min(15, Number(msg.floor) | 0));
-      if (target === state.floor) { updated = false; break; }
-      import("./turn.js").then(({ followToFloor }) => followToFloor(target));
+    case "partner_support": {
+      const partnerName = multi.partner?.name || "Partner";
+      if (msg.kind === "heal") {
+        const amt = Math.max(0, Number(msg.amount) || 0);
+        const before = state.player.hp;
+        state.player.hp = Math.min(state.player.maxHp, state.player.hp + amt);
+        const gained = state.player.hp - before;
+        setMessage(`${partnerName} heals you for ${gained}.`);
+      } else if (msg.kind === "status") {
+        const kind = String(msg.status || "");
+        const turns = Math.max(1, Number(msg.turns) || 4);
+        const power = Math.max(1, Number(msg.power) || 1);
+        if (!state.player.statuses) state.player.statuses = [];
+        const cur = state.player.statuses.find((s) => s.kind === kind);
+        if (cur) { cur.turns = Math.max(cur.turns, turns); cur.power = Math.max(cur.power, power); }
+        else state.player.statuses.push({ kind, turns, power });
+        setMessage(`${partnerName} buffs you with ${kind}.`);
+      }
       updated = false;
       break;
     }
@@ -602,12 +616,6 @@ export function sendEnemyList(floor) {
   netSend({ type: "enemies", floor, list });
 }
 
-export function sendChestList(floor) {
-  if (!isHostActive()) return;
-  const list = (state.chests || []).map(serializeChest);
-  netSend({ type: "chests", floor, list });
-}
-
 // Track which enemies changed since last broadcast so deltas stay small.
 const enemySnap = new Map(); // id -> last sent snapshot
 
@@ -694,17 +702,28 @@ export function sendFloorEffects() {
   });
 }
 
-// ---- Chest opening ----
-// Guest tells host "I want to open chest X". Host marks it opened in its
-// authoritative state and broadcasts chest_state. Loot still resolves
-// locally on the opener (each player has their own inventory anyway).
-export function syncOpenChest(chestId) {
-  if (!isGuestActive()) return;
-  netSend({ type: "input_open_chest", id: chestId });
-}
-export function broadcastChestOpened(chestId) {
-  if (!isHostActive()) return;
-  netSend({ type: "chest_state", id: chestId, opened: true });
+// ---- Chests are per-player ----
+// Each player has their own copy of every chest, identical contents
+// thanks to seeded RNG. Opening one is purely local — no sync needed.
+export function syncOpenChest() { /* removed: chests are per-player */ }
+export function broadcastChestOpened() { /* removed */ }
+
+// ---- Gifting ----
+// Send a serializable item from inventory to the partner. Function objects
+// (.use) get rebuilt on the receiving side from kind hints when possible;
+// for relics with bound effects, the item carries flavor only.
+export function sendGiftItem(item) {
+  if (!isMultiplayer() || !item) return;
+  netSend({
+    type: "gift_item",
+    item: {
+      name: String(item.name || "Gift"),
+      desc: String(item.desc || ""),
+      kind: item.augmentId ? "scroll" : (item.questItem ? "quest" : "relic"),
+      augmentId: item.augmentId || null,
+      consumeOnUse: item.consumeOnUse !== false
+    }
+  });
 }
 
 // ---- Shop / town interactions ----
@@ -713,10 +732,11 @@ export function sendShopVisit(kind, entering) {
   netSend({ type: "shop_visit", kind, entering: !!entering });
 }
 
-// ---- Floor follow (co-op makes partner descend with you) ----
-export function sendFollowFloor(floor) {
+// ---- Co-op support (heals/buffs targeted at partner) ----
+// kind = "heal" with amount, or "status" with status/turns/power.
+export function sendPartnerSupport(payload) {
   if (!isMultiplayer()) return;
-  netSend({ type: "follow_floor", floor });
+  netSend({ type: "partner_support", ...payload });
 }
 
 // ---- PvP friendly fire ----

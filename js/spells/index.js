@@ -4,7 +4,7 @@ import { spawnBurst, doScreenShake } from "../fx.js";
 import { setMessage } from "../utils.js";
 import { strokeReticle } from "./_draw.js";
 import { AUGMENT_BY_ID } from "../augments.js";
-import { multi, sendPvpHit } from "../multi.js";
+import { multi, sendPvpHit, sendPartnerSupport } from "../multi.js";
 
 import * as bolt from "./bolt.js";
 import * as chain from "./chain.js";
@@ -175,21 +175,49 @@ function runEffectWithAugments(spell, ctx) {
   return result;
 }
 
+// Spells that, when aimed at the partner in MP, should benefit the partner
+// instead of damaging anything. Each entry maps to a partner_support payload.
+const SUPPORT_SPELLS = {
+  mend:        { kind: "heal" },
+  regrow:      { kind: "status", status: "regen", turns: 8, power: 2 },
+  shieldwall:  { kind: "status", status: "ward",  turns: 6, power: 50 },
+  warcry:      { kind: "status", status: "atk_buff", turns: 6, power: 3 }, // best-effort
+  haste:       { kind: "status", status: "haste", turns: 6, power: 1 },
+  stoneskin:   { kind: "status", status: "ward",  turns: 8, power: 30 },
+  enchantblade:{ kind: "status", status: "enchantblade", turns: 8, power: 3 }
+};
+
 export function castSpell(spell, tx, ty, { charged = false, _echoLevel = 0 } = {}) {
   const chargeMul = charged ? 1.5 : 1;
   const rank = rankOf(spell.id);
   const pow = spellPowerNow();
 
-  // PvP: if the aim target is the partner's tile, route the hit to them
-  // and short-circuit the normal effect so we don't double-apply or
-  // miss in line-of-sight checks. Heal/buff/utility spells (cost > 0
-  // but no damage to enemies) still spend mana but don't hurt the
-  // partner — only damage-school spells convert.
-  if (multi.enabled && multi.connected && multi.mode === "pvp" &&
-      multi.partner && multi.partner.floor === state.floor &&
-      multi.partner.x === tx && multi.partner.y === ty &&
-      _echoLevel === 0) {
-    const isHealOrBuff = spell.school === "life" && (spell.targeting === "self" || spell.id === "mend" || spell.id === "regrow");
+  const aimedAtPartner =
+    multi.enabled && multi.connected &&
+    multi.partner && multi.partner.floor === state.floor &&
+    multi.partner.x === tx && multi.partner.y === ty &&
+    _echoLevel === 0;
+
+  // Co-op: aiming a support spell at the partner heals/buffs them.
+  if (aimedAtPartner && multi.mode === "coop" && SUPPORT_SPELLS[spell.id]) {
+    const tmpl = SUPPORT_SPELLS[spell.id];
+    spawnBurst(state.player.x, state.player.y, SCHOOL_COLORS[spell.school] || "#84f6a6", 6);
+    spawnBurst(tx, ty, SCHOOL_COLORS[spell.school] || "#84f6a6", 14);
+    if (tmpl.kind === "heal") {
+      const amount = Math.floor((10 + pow + rank * 3) * chargeMul);
+      sendPartnerSupport({ kind: "heal", amount });
+      setMessage(`You channel ${spell.name} into ${multi.partner.name} (+${amount} HP).`);
+    } else {
+      sendPartnerSupport({ kind: "status", status: tmpl.status, turns: tmpl.turns, power: tmpl.power });
+      setMessage(`You bless ${multi.partner.name} with ${spell.name}.`);
+    }
+    state.stats.spellsCast += 1;
+    return { acted: true, offensive: false };
+  }
+
+  // PvP: aimed-target damage spells striking the partner deal pvp damage.
+  if (aimedAtPartner && multi.mode === "pvp") {
+    const isHealOrBuff = !!SUPPORT_SPELLS[spell.id];
     if (!isHealOrBuff) {
       const roll = spellRoll();
       if (roll.kind === "fizzle") {

@@ -14,10 +14,10 @@ import { showResult } from "./result.js";
 import { showCutscene, recordDescend, recordItemPickup } from "./quests.js";
 import {
   sendPosition, sendFloor, sendHello,
-  sendEnemyList, sendChestList, clearEnemySnap, isHostActive,
-  isGuestActive, syncOpenChest, broadcastChestOpened,
+  sendEnemyList, clearEnemySnap, isHostActive,
+  isGuestActive,
   sendShopVisit, sendQuestPickup, sendQuestDescend,
-  multi, sendPvpHit, sendFollowFloor
+  multi, sendPvpHit
 } from "./multi.js";
 
 const PLAYER_MOVE_COOLDOWN_MS = 110;
@@ -64,10 +64,8 @@ function learnOrRankSpell(spell, nx, ny) {
 
 function openChest(chest) {
   chest.opened = true;
-  // Multiplayer: tell the partner this chest is now open. Loot is local
-  // to the opener's client — each player gets their own treasures.
-  if (isGuestActive()) syncOpenChest(chest.id);
-  if (isHostActive()) broadcastChestOpened(chest.id);
+  // Chests are per-player — opening is purely local; the partner has
+  // their own copy of this chest and can open it themselves.
   const { loot } = chest;
   const lines = [];
   if (loot.gold) {
@@ -189,7 +187,6 @@ function enterFloor(floor, { fromAbove }) {
   if (isHostActive()) {
     clearEnemySnap();
     sendEnemyList(floor);
-    sendChestList(floor);
   }
   sendFloor(floor);
   sendPosition();
@@ -256,7 +253,6 @@ function descend() {
   enterFloor(next, { fromAbove: true });
   recordDescend(next);
   sendQuestDescend(next);
-  sendFollowFloor(next);
   setMessage(firstVisit ? `You descend to floor ${next}.` : `You return to floor ${next}.`);
 }
 
@@ -270,21 +266,7 @@ function ascend() {
   snapshotFloor();
   const prev = state.floor - 1;
   enterFloor(prev, { fromAbove: false });
-  sendFollowFloor(prev);
   setMessage(prev === 0 ? "You climb back up to town." : `You ascend to floor ${prev}.`);
-}
-
-// Auto-follow when partner descends — called by multi.js handler.
-export function followToFloor(target) {
-  if (state.over || !state.started) return;
-  if (target === state.floor) return;
-  if (target < 0 || target > maxFloor) return;
-  if (state.shopInterior) return; // ignore while shopping
-  // Town has no clear-required gate; for dungeon floors we just go (the
-  // partner already left).
-  snapshotFloor();
-  enterFloor(target, { fromAbove: target < state.floor });
-  setMessage(`You follow your partner to floor ${target === 0 ? "town" : target}.`);
 }
 
 function eligibleFloors() {
@@ -316,7 +298,6 @@ function travelToFloor(target) {
   enterFloor(target, { fromAbove: true });
   recordDescend(target);
   sendQuestDescend(target);
-  sendFollowFloor(target);
   setMessage(firstVisit ? `You descend to floor ${target}.` : `You return to floor ${target}.`);
 }
 

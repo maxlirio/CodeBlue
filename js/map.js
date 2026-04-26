@@ -1,7 +1,7 @@
 import { cols, rows, ENEMY_TYPES, WEAPON_POOL } from "./config.js";
 import { state } from "./state.js";
 import { key } from "./utils.js";
-import { srnd as rnd, spick as pick, srand } from "./rng.js";
+import { srnd as rnd, spick as pick, srand, setSeed } from "./rng.js";
 import { makeRelic } from "./items.js";
 import { makeMagicScroll } from "./augments.js";
 import { isFindQuestForFloor, consumePlantedFindQuestItem } from "./quests.js";
@@ -108,9 +108,10 @@ export function buildFloor() {
   state.chests = [];
   const occupied = new Set([key(state.player.x, state.player.y), key(state.stairs.x, state.stairs.y)]);
 
-  // In multiplayer the guest mirrors the host's authoritative spawns, so
-  // we skip enemy + chest placement entirely on the guest's side. The
-  // guest will receive an "enemies" / "chests" broadcast right after.
+  // Enemies are still host-authoritative (guest mirrors via broadcast),
+  // so guests skip enemy placement. Chests are now per-player — both
+  // sides build their own with the same seeded RNG, so contents match,
+  // but each player opens their own copy and gets their own loot.
   if (!isGuestActive()) {
     const enemyCount = 2 + Math.floor(state.floor * 1.1);
     for (let i = 0; i < enemyCount; i++) placeEnemy(occupied, false);
@@ -119,14 +120,17 @@ export function buildFloor() {
       state.bossAlive = true;
       placeEnemy(occupied, true);
     }
-
-    const chestCount = 2 + Math.floor(state.floor / 3);
-    for (let i = 0; i < chestCount; i++) placeChest(occupied);
   } else {
-    // Guest still tracks bossAlive based on floor — it'll be confirmed
-    // by host broadcasts once enemies arrive.
     state.bossAlive = state.floor % 5 === 0;
   }
+
+  // Re-seed JUST for chest placement using a deterministic key. Host and
+  // guest end up with identical chest positions and loot, even though
+  // the host's RNG was advanced by enemy placement and the guest's
+  // wasn't. Both clients open their own copies independently.
+  setSeed(`${state.seed || "noseed"}:chests:${state.floor}`);
+  const chestCount = 2 + Math.floor(state.floor / 3);
+  for (let i = 0; i < chestCount; i++) placeChest(occupied);
 }
 
 function placeChest(occupied) {

@@ -3,6 +3,7 @@ import { CLASS_OPTIONS, SCHOOL_COLORS, STATUS_DEFS } from "./config.js";
 import { SPELL_BY_ID, rankOf } from "./spells/index.js";
 import { drawPortrait } from "./render.js";
 import { chooseClass } from "./turn.js";
+import { multi } from "./multi.js";
 
 const heroNameInput = document.getElementById("heroName");
 const rerollNameBtn = document.getElementById("rerollName");
@@ -126,13 +127,15 @@ export function updateUi() {
   }
 
   if (state.player.inventory.length) {
+    const showGift = !!(multi.enabled && multi.connected);
     const items = state.player.inventory.map((item, i) =>
       `<li class="tappable" data-relic-idx="${i}">
         <span class="num">${i + 1}</span>
         <span class="name-desc"><span class="item-name">${item.name}</span> — <span class="item-desc">${item.desc || ""}</span></span>
+        ${showGift ? `<button class="gift-btn" data-gift-idx="${i}" title="Gift to partner">🎁</button>` : ""}
       </li>`
     ).join("");
-    ui.inventory.innerHTML = (ui.inventory.dataset.questBlock || "") + `<div class="hud-heading">Items — tap or press 1–6</div><ul class="item-list">${items}</ul>`;
+    ui.inventory.innerHTML = (ui.inventory.dataset.questBlock || "") + `<div class="hud-heading">Items — tap or press 1–6${showGift ? " · 🎁 to gift" : ""}</div><ul class="item-list">${items}</ul>`;
   } else {
     ui.inventory.innerHTML = (ui.inventory.dataset.questBlock || "") + `<div class="hud-heading">Items</div><div class="hud-empty">empty — find relics, scrolls, and potions in chests and shops.</div>`;
   }

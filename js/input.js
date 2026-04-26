@@ -6,6 +6,7 @@ import { rangedAttackAt, useWeaponAbility } from "./combat.js";
 import { tryMove, useRelic, returnToTown } from "./turn.js";
 import { renderBackpack } from "./backpack.js";
 import { closeShop } from "./shop.js";
+import { multi } from "./multi.js";
 
 const MOVE_KEYS = {
   arrowup: [0, -1], w: [0, -1],
@@ -36,14 +37,20 @@ function castFromSlot(k, { charged = false } = {}) {
     return;
   }
   const cost = Math.ceil(spell.cost * (charged ? 1.5 : 1));
-  if (spell.targeting === "self" || spell.targeting === "adjacent") {
+  // In multiplayer, "self" and "adjacent" targeting force aim mode so the
+  // player can choose to support themselves OR their partner (or land
+  // spells like venom on a foe). The cast resolver routes to a partner
+  // hit / heal / buff if the chosen tile is the partner's.
+  const isMP = !!(multi.enabled && multi.connected);
+  const selfTarget = spell.targeting === "self" || spell.targeting === "adjacent";
+  if (selfTarget && !isMP) {
     if (state.player.mana < cost) { setMessage("Not enough mana."); return; }
     const res = castSpell(spell, state.player.x, state.player.y, { charged });
     if (res.acted) spendSpellMana(spell, charged);
     if (charged) setTouchCharged(false);
   } else {
     state.aimMode = { kind: "spell", spell, name: spell.name, charged };
-    setMessage(`${charged ? "CHARGED " : ""}Aiming ${spell.name}. ${charged ? "" : "Hold Shift / tap CHARGED for 1.5×."} Click/tap tile.`);
+    setMessage(`${charged ? "CHARGED " : ""}Aiming ${spell.name}. ${selfTarget ? "Click yourself or your partner." : (charged ? "" : "Hold Shift / tap CHARGED for 1.5×.")} Click/tap tile.`);
   }
 }
 
@@ -296,6 +303,22 @@ export function initTouch() {
 
   if (ui.inventory) {
     ui.inventory.addEventListener("click", (e) => {
+      // Gift button has priority — don't fall through to "use relic"
+      const giftBtn = e.target.closest("[data-gift-idx]");
+      if (giftBtn) {
+        e.stopPropagation();
+        const idx = parseInt(giftBtn.dataset.giftIdx, 10);
+        const item = state.player.inventory[idx];
+        if (item) {
+          import("./multi.js").then(({ sendGiftItem, multi }) => {
+            if (!multi.enabled || !multi.connected) return;
+            sendGiftItem(item);
+            state.player.inventory.splice(idx, 1);
+            setMessage(`Gifted ${item.name} to ${multi.partner?.name || "your partner"}.`);
+          });
+        }
+        return;
+      }
       const row = e.target.closest("[data-relic-idx]");
       if (!row) return;
       useRelic(parseInt(row.dataset.relicIdx, 10));
