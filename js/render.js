@@ -50,6 +50,7 @@ import { renderSpellAim, renderAllSpellFx } from "./spells/index.js";
 import { tickEnemies } from "./protocols.js";
 import { tickRealtime, cullDyingEnemies } from "./combat.js";
 import { endRun } from "./turn.js";
+import { multi } from "./multi.js";
 
 const SPRITE_BY_ENEMY = Object.fromEntries(ENEMY_TYPES.map((t) => [t.id, t.sprite]));
 
@@ -68,6 +69,36 @@ function drawTile(x, y, color) {
 function drawHero(x, y) {
   const sprite = HERO_SPRITES[state.player.className] || HERO_SPRITE;
   drawSprite(ctx, sprite, x * tileSize, y * tileSize);
+}
+
+function drawPartner() {
+  if (!multi.enabled || !multi.partner) return;
+  if (multi.partner.floor !== state.floor) return;
+  const sprite = HERO_SPRITES[multi.partner.className] || HERO_SPRITE;
+  const px = multi.partner.x * tileSize;
+  const py = multi.partner.y * tileSize;
+  ctx.save();
+  ctx.globalAlpha = 0.55;
+  drawSprite(ctx, sprite, px, py);
+  ctx.restore();
+  // Mode-tinted halo so co-op partner is teal, pvp is reddish.
+  const color = multi.partner.color || (multi.mode === "pvp" ? "#ff7a82" : "#7bdff2");
+  ctx.save();
+  ctx.globalAlpha = 0.55 + 0.25 * Math.sin(Date.now() / 280);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(px + 1, py + 1, tileSize - 2, tileSize - 2);
+  ctx.restore();
+  // Name label above
+  ctx.save();
+  ctx.font = "bold 9px 'Fredoka', sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#000";
+  const name = multi.partner.name || "Partner";
+  ctx.fillText(name, px + tileSize / 2 + 1, py - 2);
+  ctx.fillStyle = color;
+  ctx.fillText(name, px + tileSize / 2, py - 3);
+  ctx.restore();
 }
 
 function drawEnemy(enemy) {
@@ -315,6 +346,7 @@ export function draw() {
   if (!state.shopInterior) drawPickups();
 
   for (const enemy of state.enemies) { drawEnemy(enemy); drawStatusMarks(enemy); }
+  drawPartner();
   drawHero(state.player.x, state.player.y);
   drawStatusMarks(state.player);
   renderAllSpellFx();

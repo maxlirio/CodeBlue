@@ -2,7 +2,7 @@
 import http.server
 import socketserver
 
-PORT = 8090
+PORT = 8092
 
 class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
@@ -13,5 +13,5 @@ class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
 
 with socketserver.TCPServer(("", PORT), NoCacheHandler) as httpd:
     httpd.allow_reuse_address = True
-    print(f"Serving CodeRed at http://localhost:{PORT} (no-cache)")
+    print(f"Serving CodeBlue at http://localhost:{PORT} (no-cache)")
     httpd.serve_forever()

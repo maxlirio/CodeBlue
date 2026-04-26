@@ -7,7 +7,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=19" />
+  <link rel="stylesheet" href="css/style.css?v=20" />
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
   <div class="frame">
@@ -15,6 +16,7 @@
 
     <div id="classOverlay" class="overlay">
       <h2>CHOOSE YOUR CLASS</h2>
+      <div id="multiBanner" class="multi-banner hidden"></div>
       <div class="field">
         <label for="heroName">adventurer name</label>
         <div class="field-row">
@@ -22,6 +24,7 @@
           <button class="choice" id="rerollName">reroll</button>
         </div>
       </div>
+      <button class="choice" id="playWithFriendsBtn"><strong>Play with friends ↔</strong><span>Host or join a co-op / PvP room.</span></button>
       <div id="classChoices" class="choice-grid"></div>
     </div>
 
@@ -85,6 +88,12 @@
       </div>
       <div id="cutsceneQuests" class="choice-grid"></div>
       <div id="cutsceneStatus" class="cutscene-status hidden">Preparing your tale…</div>
+    </div>
+
+    <div id="multiOverlay" class="overlay hidden">
+      <h2>PLAY WITH FRIENDS</h2>
+      <div id="multiStage"></div>
+      <button class="choice" id="multiPlayBtn" style="display:none">Begin</button>
     </div>
 
     <div id="questCompleteOverlay" class="overlay hidden">
@@ -198,6 +207,12 @@
   <audio id="bgm" src="assets/the-last-stand.mp3" loop preload="auto"></audio>
   <button id="muteBtn" class="mute-btn" title="Toggle music (M)" aria-label="Toggle music">♪</button>
 
+  <div id="partnerCard" class="partner-card hidden" aria-live="polite"></div>
+  <div id="chatBox" class="chat-box hidden" aria-label="Chat">
+    <div id="chatLog" class="chat-log"></div>
+    <input id="chatInput" type="text" maxlength="200" placeholder="press T to chat / Enter to send" />
+  </div>
+
   <div class="touch-controls" id="touchControls">
     <div class="dpad" aria-label="D-pad">
       <button class="up" data-move="0,-1" aria-label="up">▲</button>
@@ -221,6 +236,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/main.js?v=19"></script>
+  <script type="module" src="js/main.js?v=20"></script>
 </body>
 </html>

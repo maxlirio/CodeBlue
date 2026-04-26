@@ -47,7 +47,16 @@ export const ui = {
   questCompleteName: document.getElementById("questCompleteName"),
   questCompleteFlavor: document.getElementById("questCompleteFlavor"),
   questCompleteRewards: document.getElementById("questCompleteRewards"),
-  questCompleteClose: document.getElementById("questCompleteClose")
+  questCompleteClose: document.getElementById("questCompleteClose"),
+  multiOverlay: document.getElementById("multiOverlay"),
+  multiStage: document.getElementById("multiStage"),
+  multiPlayBtn: document.getElementById("multiPlayBtn"),
+  multiBanner: document.getElementById("multiBanner"),
+  playWithFriendsBtn: document.getElementById("playWithFriendsBtn"),
+  partnerCard: document.getElementById("partnerCard"),
+  chatBox: document.getElementById("chatBox"),
+  chatLog: document.getElementById("chatLog"),
+  chatInput: document.getElementById("chatInput")
 };
 
 function makeRunNameParts() {

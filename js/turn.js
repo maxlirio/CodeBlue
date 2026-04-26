@@ -12,6 +12,7 @@ import { openShop } from "./shop.js";
 import { SCHOOL_COLORS } from "./config.js";
 import { showResult } from "./result.js";
 import { showCutscene, recordDescend, recordItemPickup } from "./quests.js";
+import { sendPosition, sendFloor, sendHello } from "./multi.js";
 
 const PLAYER_MOVE_COOLDOWN_MS = 110;
 
@@ -155,6 +156,8 @@ function enterFloor(floor, { fromAbove }) {
     restoreFloor(floor);
   } else if (floor === 0) {
     buildTown();
+    sendFloor(0);
+    sendPosition();
     return;
   } else {
     buildFloor();
@@ -169,6 +172,8 @@ function enterFloor(floor, { fromAbove }) {
     state.player.x = state.stairs.x;
     state.player.y = state.stairs.y;
   }
+  sendFloor(floor);
+  sendPosition();
 }
 
 function maybeMarkCurrentFloorCleared() {
@@ -399,6 +404,7 @@ export function tryMove(dx, dy) {
 
   state.player.x = nx;
   state.player.y = ny;
+  sendPosition();
 
   const chest = (state.chests || []).find((c) => c.x === nx && c.y === ny && !c.opened);
   if (chest) openChest(chest);
@@ -460,6 +466,7 @@ export function chooseClass(c, opts = {}) {
   recalcAttack();
   state.started = true;
   ui.classOverlay.classList.add("hidden");
+  sendHello();
   setMessage("A figure waits at his desk before you reach town…");
   // Cutscene first — quest-giver picks the player's run-defining errand,
   // then the actual town loads.
