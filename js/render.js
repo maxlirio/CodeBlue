@@ -50,7 +50,7 @@ import { renderSpellAim, renderAllSpellFx } from "./spells/index.js";
 import { tickEnemies } from "./protocols.js";
 import { tickRealtime, cullDyingEnemies } from "./combat.js";
 import { endRun } from "./turn.js";
-import { multi } from "./multi.js";
+import { session } from "./net/session.js";
 
 const SPRITE_BY_ENEMY = Object.fromEntries(ENEMY_TYPES.map((t) => [t.id, t.sprite]));
 
@@ -72,30 +72,24 @@ function drawHero(x, y) {
 }
 
 function drawPartner() {
-  if (!multi.enabled || !multi.partner) return;
-  if (multi.partner.floor !== state.floor) return;
-  const sprite = HERO_SPRITES[multi.partner.className] || HERO_SPRITE;
-  const px = multi.partner.x * tileSize;
-  const py = multi.partner.y * tileSize;
-  // Solid sprite — partner reads as a real character, not a ghost.
+  if (!session.partnerHere()) return;
+  const partner = session.partner;
+  const sprite = HERO_SPRITES[partner.className] || HERO_SPRITE;
+  const px = partner.x * tileSize;
+  const py = partner.y * tileSize;
   drawSprite(ctx, sprite, px, py);
-  // Mode-tinted halo so co-op partner is teal, pvp is reddish.
-  // Always derive from current mode so a late-arriving "seed" message
-  // (which is what carries the chosen mode to the guest) flips the color
-  // even after the initial "hello" was processed.
-  const color = multi.mode === "pvp" ? "#ff7a82" : "#7bdff2";
+  const color = session.partnerColor();
   ctx.save();
   ctx.globalAlpha = 0.55 + 0.25 * Math.sin(Date.now() / 280);
   ctx.strokeStyle = color;
   ctx.lineWidth = 2;
   ctx.strokeRect(px + 1, py + 1, tileSize - 2, tileSize - 2);
   ctx.restore();
-  // Name label above
   ctx.save();
   ctx.font = "bold 9px 'Fredoka', sans-serif";
   ctx.textAlign = "center";
   ctx.fillStyle = "#000";
-  const name = multi.partner.name || "Partner";
+  const name = partner.name || "Partner";
   ctx.fillText(name, px + tileSize / 2 + 1, py - 2);
   ctx.fillStyle = color;
   ctx.fillText(name, px + tileSize / 2, py - 3);
@@ -360,32 +354,6 @@ export function draw() {
   updateUi();
 }
 
-function isPaused() {
-  // Hard pauses — the world is genuinely off in all modes
-  if (state.over) return true;
-  if (!state.started) return true;
-  if (state.awaitingShop) return true;
-  if (ui.cutsceneOverlay && !ui.cutsceneOverlay.classList.contains("hidden")) return true;
-
-  // In multiplayer the host MUST keep ticking the world or the guest's
-  // simulation freezes — the guest only sees what the host broadcasts.
-  // So the host treats local UI overlays (aim, backpack, chest, etc.)
-  // as non-pausing. The guest can still pause locally; their tick
-  // doesn't drive shared state anyway.
-  const isMpHost = multi.enabled && multi.connected && multi.role === "host";
-  if (isMpHost) return false;
-
-  // Solo and guest — original pause behaviour
-  if (state.backpackOpen) return true;
-  if (state.aimMode) return true;
-  if (state.tutorialOpen) return true;
-  if (state.chestOpen) return true;
-  if (state.discardOpen) return true;
-  if (state.applyOpen) return true;
-  if (ui.questCompleteOverlay && !ui.questCompleteOverlay.classList.contains("hidden")) return true;
-  return false;
-}
-
 let lastFrameMs = null;
 const STATUS_TICK_MS = 500;
 let statusAccum = 0;
@@ -419,7 +387,7 @@ export function loop() {
   const now = performance.now();
   const dt = lastFrameMs == null ? 0 : Math.min(now - lastFrameMs, 100);
   lastFrameMs = now;
-  if (!isPaused()) tickWorld(dt);
+  if (!session.simulationPaused()) tickWorld(dt);
   else statusAccum = 0;
   draw();
   requestAnimationFrame(loop);

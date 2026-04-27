@@ -6,7 +6,8 @@ import { rangedAttackAt, useWeaponAbility } from "./combat.js";
 import { tryMove, useRelic, returnToTown } from "./turn.js";
 import { renderBackpack } from "./backpack.js";
 import { closeShop } from "./shop.js";
-import { multi } from "./multi.js";
+import { session } from "./net/session.js";
+import { sendGiftItem } from "./net/sync.js";
 
 const MOVE_KEYS = {
   arrowup: [0, -1], w: [0, -1],
@@ -41,7 +42,7 @@ function castFromSlot(k, { charged = false } = {}) {
   // player can choose to support themselves OR their partner (or land
   // spells like venom on a foe). The cast resolver routes to a partner
   // hit / heal / buff if the chosen tile is the partner's.
-  const isMP = !!(multi.enabled && multi.connected);
+  const isMP = session.isMultiplayer();
   const selfTarget = spell.targeting === "self" || spell.targeting === "adjacent";
   if (selfTarget && !isMP) {
     if (state.player.mana < cost) { setMessage("Not enough mana."); return; }
@@ -309,13 +310,10 @@ export function initTouch() {
         e.stopPropagation();
         const idx = parseInt(giftBtn.dataset.giftIdx, 10);
         const item = state.player.inventory[idx];
-        if (item) {
-          import("./multi.js").then(({ sendGiftItem, multi }) => {
-            if (!multi.enabled || !multi.connected) return;
-            sendGiftItem(item);
-            state.player.inventory.splice(idx, 1);
-            setMessage(`Gifted ${item.name} to ${multi.partner?.name || "your partner"}.`);
-          });
+        if (item && session.isMultiplayer()) {
+          sendGiftItem(item);
+          state.player.inventory.splice(idx, 1);
+          setMessage(`Gifted ${item.name} to ${session.partner.name || "your partner"}.`);
         }
         return;
       }

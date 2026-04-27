@@ -4,7 +4,8 @@ import { spawnBurst, doScreenShake } from "../fx.js";
 import { setMessage } from "../utils.js";
 import { strokeReticle } from "./_draw.js";
 import { AUGMENT_BY_ID } from "../augments.js";
-import { multi, sendPvpHit, sendPartnerSupport } from "../multi.js";
+import { session } from "../net/session.js";
+import { sendPvpHit, sendPartnerSupport } from "../net/sync.js";
 
 import * as bolt from "./bolt.js";
 import * as chain from "./chain.js";
@@ -192,31 +193,27 @@ export function castSpell(spell, tx, ty, { charged = false, _echoLevel = 0 } = {
   const rank = rankOf(spell.id);
   const pow = spellPowerNow();
 
-  const aimedAtPartner =
-    multi.enabled && multi.connected &&
-    multi.partner && multi.partner.floor === state.floor &&
-    multi.partner.x === tx && multi.partner.y === ty &&
-    _echoLevel === 0;
+  const aimedAtPartner = _echoLevel === 0 && session.partnerAt(tx, ty);
 
   // Co-op: aiming a support spell at the partner heals/buffs them.
-  if (aimedAtPartner && multi.mode === "coop" && SUPPORT_SPELLS[spell.id]) {
+  if (aimedAtPartner && session.isCoop() && SUPPORT_SPELLS[spell.id]) {
     const tmpl = SUPPORT_SPELLS[spell.id];
     spawnBurst(state.player.x, state.player.y, SCHOOL_COLORS[spell.school] || "#84f6a6", 6);
     spawnBurst(tx, ty, SCHOOL_COLORS[spell.school] || "#84f6a6", 14);
     if (tmpl.kind === "heal") {
       const amount = Math.floor((10 + pow + rank * 3) * chargeMul);
       sendPartnerSupport({ kind: "heal", amount });
-      setMessage(`You channel ${spell.name} into ${multi.partner.name} (+${amount} HP).`);
+      setMessage(`You channel ${spell.name} into ${session.partner.name} (+${amount} HP).`);
     } else {
       sendPartnerSupport({ kind: "status", status: tmpl.status, turns: tmpl.turns, power: tmpl.power });
-      setMessage(`You bless ${multi.partner.name} with ${spell.name}.`);
+      setMessage(`You bless ${session.partner.name} with ${spell.name}.`);
     }
     state.stats.spellsCast += 1;
     return { acted: true, offensive: false };
   }
 
   // PvP: aimed-target damage spells striking the partner deal pvp damage.
-  if (aimedAtPartner && multi.mode === "pvp") {
+  if (aimedAtPartner && session.isPvp()) {
     const isHealOrBuff = !!SUPPORT_SPELLS[spell.id];
     if (!isHealOrBuff) {
       const roll = spellRoll();
@@ -234,7 +231,7 @@ export function castSpell(spell, tx, ty, { charged = false, _echoLevel = 0 } = {
       if (charged) doScreenShake(4);
       if (isCrit) doScreenShake(3);
       sendPvpHit(baseDmg, state.heroName || "your rival");
-      setMessage(`${spell.name} ${isCrit ? "CRITS " : "strikes "}${multi.partner.name} for ${baseDmg}.`);
+      setMessage(`${spell.name} ${isCrit ? "CRITS " : "strikes "}${session.partner.name} for ${baseDmg}.`);
       state.stats.spellsCast += 1;
       return { acted: true, offensive: true };
     }

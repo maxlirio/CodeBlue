@@ -1,526 +1,104 @@
-// CodeBlue multiplayer.
+// CodeBlue multiplayer — facade.
 //
-// Architecture (Phase 2):
-//   * The HOST owns shared world state — enemy list, enemy AI ticks,
-//     chest open/loot, floor effects. The host runs the authoritative
-//     simulation and broadcasts the resulting deltas.
-//   * The GUEST does not run enemy AI; it mirrors the host's broadcasts
-//     and renders. Player input that affects shared state (attacks, casts,
-//     chest opens, descend) is sent to the host as input messages; the
-//     host applies them and broadcasts the result.
-//   * Each client owns its own player state (HP, MP, inventory). Damage
-//     to a player is computed by the host but delivered as a "playerHit"
-//     event to the targeted side, which applies it locally.
+// All real logic lives under /js/net/:
+//   transport.js — PeerJS data channel
+//   messages.js  — wire types
+//   session.js   — role/mode/partner authority + helpers
+//   sync.js      — outbound broadcasts
+//   handlers.js  — inbound dispatch
+//   chat.js      — chat UI helpers
 //
-// Wire protocol over the PeerJS data channel:
-//   --- handshake / presence (Phase 1) ---
-//   { type: "hello",  name, className, color }
-//   { type: "seed",   seed, mode }    // host -> guest, mode = "coop" | "pvp"
-//   { type: "ready" }                 // local player has chosen a class
-//   { type: "pos",    x, y, floor, hp, maxHp }
-//   { type: "floor",  floor }
-//   { type: "chat",   text }
-//
-//   --- world state, host -> guest (Phase 2) ---
-//   { type: "enemies", floor, list }              // sent on floor entry
-//   { type: "enemy_delta", id, x?, y?, hp?, statuses?, dying? }
-//   { type: "enemy_remove", id }
-//   { type: "chests",  list }                     // sent on floor entry
-//   { type: "chest_state", id, opened }
-//
-//   --- inputs, guest -> host (Phase 2) ---
-//   { type: "input_attack", id }                  // guest melee'd enemy id
-//   { type: "input_cast", spellId, tx, ty, charged }
-//   { type: "input_ability", tx, ty }
-//   { type: "input_open_chest", id }
-//
-//   --- damage / fx, host -> guest (Phase 2) ---
-//   { type: "playerHit", side, dmg, byName?, status? }
-//   { type: "spell_fx", origin, target, color, kind }
-//
-// Phase 1 ships above the dotted line (handshake / presence / chat).
-// Phase 2 ships everything below it. Each task in Phase 2 grows this file
-// with new handlers and new outbound helpers.
+// This file binds those pieces into a connection lifecycle and re-exports
+// the classic API (`multi`, `startHost`, `joinAsGuest`, `sendPosition`,
+// etc.) so existing call sites keep working while we migrate them to
+// `session` directly.
 
 import {
-  hostRoom, joinRoom, send as netSend, onMessage, onOpen, onClose, onError,
-  closeConnection, isConnected
-} from "./net.js";
-import { state, ui } from "./state.js";
-import { setSeed } from "./rng.js";
-import { setMessage } from "./utils.js";
+  hostRoom, joinRoom, onPacket, onOpen, onClose, onError,
+  closeConnection
+} from "./net/transport.js";
+import { session } from "./net/session.js";
+import { dispatch } from "./net/handlers.js";
+import { appendChat } from "./net/chat.js";
+import {
+  sendHello, sendPing, updatePartnerCard
+} from "./net/sync.js";
 
-export const multi = {
-  enabled: false,
-  role: null,             // "host" | "guest"
-  mode: "coop",           // "coop" | "pvp"
-  seed: null,
-  ready: false,           // local player has picked a class
-  partnerReady: false,
-  connected: false,
-  partner: null,          // { name, className, color, x, y, floor, alive }
-  pendingHostStartCallback: null,
-  rttMs: null,
-  lastPingAt: 0,
-  pingTimer: null
-};
+// Re-exports — keep the legacy import shape so the rest of the codebase
+// keeps working unchanged.
+export { session as multi } from "./net/session.js";
+export {
+  sendHello, sendReady, sendPosition, sendFloor, sendChat,
+  sendEnemyList, clearEnemySnap,
+  syncRemoteDamage, syncRemoteApplyStatus, syncRemoteRemoveStatus,
+  deliverPlayerHitToGuest,
+  broadcastFxBurst, broadcastFxBeam, broadcastFxShake,
+  sendFloorEffects, broadcastEnemyDeltas,
+  sendGiftItem, sendShopVisit,
+  sendPartnerSupport, sendPvpHit,
+  sendQuestKill, sendQuestPickup, sendQuestDescend,
+  sendSeed
+} from "./net/sync.js";
 
-const PARTNER_COLORS = { coop: "#7bdff2", pvp: "#ff7a82" };
+// Convenience checks — already methods on session, but kept as functions
+// for back-compat. New code should call session.isMultiplayer() etc.
+export function isMultiplayer() { return session.isMultiplayer(); }
+export function isHost()        { return session.isHost(); }
+export function isGuest()       { return session.isGuest(); }
+export function isHostActive()  { return session.isHostActive(); }
+export function isGuestActive() { return session.isGuestActive(); }
+export function partnerOnSameFloor() { return session.partnerHere(); }
 
-function partnerColorForMode(mode) {
-  return PARTNER_COLORS[mode] || PARTNER_COLORS.coop;
-}
+// ---- ping loop ----
 
-export function reset() {
-  multi.enabled = false;
-  multi.role = null;
-  multi.mode = "coop";
-  multi.seed = null;
-  multi.ready = false;
-  multi.partnerReady = false;
-  multi.connected = false;
-  multi.partner = null;
-}
-
-// ---- Outbound helpers ----
-
-export function sendHello() {
-  netSend({
-    type: "hello",
-    name: state.heroName || "Wanderer",
-    className: state.player.className || "?",
-    color: partnerColorForMode(multi.mode)
-  });
-}
-
-export function sendReady() {
-  multi.ready = true;
-  netSend({ type: "ready" });
-}
-
-export function sendPosition() {
-  if (!multi.enabled || !multi.connected) return;
-  netSend({
-    type: "pos",
-    x: state.player.x,
-    y: state.player.y,
-    floor: state.floor,
-    hp: state.player.hp,
-    maxHp: state.player.maxHp
-  });
-}
-
-export function sendFloor(floor) {
-  if (!multi.enabled || !multi.connected) return;
-  netSend({ type: "floor", floor });
-}
-
-export function sendChat(text) {
-  if (!multi.enabled || !multi.connected) return;
-  if (!text || !text.trim()) return;
-  const t = text.trim().slice(0, 200);
-  netSend({ type: "chat", text: t });
-  appendChat(state.heroName || "you", t, true);
-}
-
-// ---- Inbound dispatcher ----
-
-function ensurePartner() {
-  if (!multi.partner) {
-    multi.partner = { name: "Partner", className: "Knight", color: PARTNER_COLORS.coop, x: 0, y: 0, floor: 0, hp: 0, maxHp: 0, alive: true };
-  }
-  return multi.partner;
-}
-
-function updatePartnerCard() {
-  if (!ui.partnerCard) return;
-  if (!multi.enabled || !multi.partner) {
-    ui.partnerCard.classList.add("hidden");
-    return;
-  }
-  const p = multi.partner;
-  const sameFloor = p.floor === state.floor;
-  const floorLabel = p.floor === 0 ? "Town" : `Floor ${p.floor}`;
-  const hpPct = p.maxHp ? Math.max(0, Math.min(1, p.hp / p.maxHp)) : 0;
-  const liveColor = partnerColorForMode(multi.mode);
-  ui.partnerCard.style.borderColor = liveColor;
-  ui.partnerCard.classList.remove("hidden");
-  const rtt = multi.rttMs;
-  let rttClass = "ping good", rttLabel = "—";
-  if (rtt != null) {
-    rttLabel = `${Math.round(rtt)}ms`;
-    if (rtt < 100) rttClass = "ping good";
-    else if (rtt < 250) rttClass = "ping warn";
-    else rttClass = "ping err";
-  }
-  ui.partnerCard.innerHTML =
-    `<div class="partner-name" style="color:${liveColor}">${escapeHtml(p.name)} <span class="partner-class">· ${escapeHtml(p.className)}</span></div>` +
-    `<div class="partner-meta">${sameFloor ? "<b>here</b>" : floorLabel}${p.maxHp ? ` · HP ${p.hp}/${p.maxHp}` : ""}</div>` +
-    `<div class="partner-hp"><div class="partner-hp-fill" style="width:${Math.round(hpPct * 100)}%; background:${liveColor}"></div></div>` +
-    `<div class="partner-mode">${multi.mode === "pvp" ? "PvP" : "Co-op"}</div>` +
-    `<div class="partner-ping ${rttClass}">${rttLabel}</div>`;
-}
-
-function handleMessage(msg) {
-  if (!msg || typeof msg !== "object") return;
-  let updated = true;
-  switch (msg.type) {
-    case "hello": {
-      const p = ensurePartner();
-      if (typeof msg.name === "string")      p.name = msg.name.slice(0, 32);
-      if (typeof msg.className === "string") p.className = msg.className.slice(0, 24);
-      // Always color the partner based on this side's mode for consistency.
-      p.color = partnerColorForMode(multi.mode);
-      appendChat("system", `${p.name} the ${p.className} joined.`, false);
-      break;
-    }
-    case "seed": {
-      // Guest receives the host's seed and the chosen mode.
-      multi.seed = String(msg.seed || "");
-      multi.mode = msg.mode === "pvp" ? "pvp" : "coop";
-      if (multi.seed) {
-        setSeed(multi.seed);
-        state.seed = multi.seed;
-      }
-      const p = ensurePartner();
-      p.color = partnerColorForMode(multi.mode);
-      appendChat("system", `Seed shared. Mode: ${multi.mode.toUpperCase()}.`, false);
-      break;
-    }
-    case "ready": {
-      multi.partnerReady = true;
-      appendChat("system", `${multi.partner?.name || "Partner"} is ready.`, false);
-      maybeStartHostMatch();
-      break;
-    }
-    case "pos": {
-      const p = ensurePartner();
-      p.x = Number(msg.x) | 0;
-      p.y = Number(msg.y) | 0;
-      p.floor = Number(msg.floor) | 0;
-      p.hp = Number(msg.hp) | 0;
-      p.maxHp = Number(msg.maxHp) | 0;
-      break;
-    }
-    case "floor": {
-      const p = ensurePartner();
-      p.floor = Number(msg.floor) | 0;
-      appendChat("system", `${p.name} is on floor ${p.floor === 0 ? "Town" : p.floor}.`, false);
-      // If we're the host and the partner just arrived on our floor, they
-      // need a fresh enemy snapshot — our initial broadcast at enterFloor
-      // is long gone if they joined later or were on a different floor.
-      if (multi.role === "host" && p.floor === state.floor && state.floor > 0) {
-        clearEnemySnap();
-        sendEnemyList(state.floor);
-      }
-      break;
-    }
-    case "chat": {
-      const name = multi.partner?.name || "Partner";
-      appendChat(name, String(msg.text || "").slice(0, 200), false);
-      updated = false;
-      break;
-    }
-    case "enemies": {
-      // Guest receives the host's full enemy list for the current floor.
-      // Replace local enemies with the broadcast list.
-      if (Number(msg.floor) !== state.floor) { updated = false; break; }
-      state.enemies = (msg.list || []).map((e) => ({
-        ...e,
-        statuses: (e.statuses || []).map((s) => ({ ...s })),
-        // Guest never runs AI for these; protoState/actTimer are unused.
-        protoState: {},
-        actTimer: 0
-      }));
-      updated = false;
-      break;
-    }
-    case "enemy_delta": {
-      const e = state.enemies.find((x) => x.id === msg.id);
-      if (e) {
-        if (msg.x !== undefined) e.x = msg.x;
-        if (msg.y !== undefined) e.y = msg.y;
-        if (msg.hp !== undefined) e.hp = msg.hp;
-        if (msg.dying !== undefined) e.dying = msg.dying;
-        if (Array.isArray(msg.statuses)) e.statuses = msg.statuses.map((s) => ({ ...s }));
-      }
-      updated = false;
-      break;
-    }
-    case "enemy_remove": {
-      state.enemies = state.enemies.filter((x) => x.id !== msg.id);
-      updated = false;
-      break;
-    }
-    // chests / chest_state messages removed: chests are per-player now
-    // ---- Host receives guest combat mutations ----
-    case "remote_damage": {
-      // Apply damage to host's authoritative enemy. Skip multipliers — guest
-      // already applied them. Mark rewardsGranted so host doesn't double-credit.
-      if (multi.role !== "host") { updated = false; break; }
-      const e = state.enemies.find((x) => x.id === msg.id);
-      if (e) {
-        e.hp -= Math.max(0, Number(msg.amount) || 0);
-        if (e.hp <= 0 && !e.rewardsGranted) {
-          e.rewardsGranted = true;
-          e.dying = e.dying || 18;
-        }
-      }
-      updated = false;
-      break;
-    }
-    case "remote_apply_status": {
-      if (multi.role !== "host") { updated = false; break; }
-      const e = state.enemies.find((x) => x.id === msg.id);
-      if (e) {
-        const cur = (e.statuses ||= []).find((s) => s.kind === msg.kind);
-        if (cur) {
-          cur.turns = Math.max(cur.turns, Number(msg.turns) || 0);
-          cur.power = Math.max(cur.power, Number(msg.power) || 1);
-        } else {
-          e.statuses.push({ kind: msg.kind, turns: Number(msg.turns) || 1, power: Number(msg.power) || 1 });
-        }
-      }
-      updated = false;
-      break;
-    }
-    case "remote_remove_status": {
-      if (multi.role !== "host") { updated = false; break; }
-      const e = state.enemies.find((x) => x.id === msg.id);
-      if (e && e.statuses) e.statuses = e.statuses.filter((s) => s.kind !== msg.kind);
-      updated = false;
-      break;
-    }
-    // input_open_chest removed — opens are local now
-    case "gift_item": {
-      // Reconstruct a usable item on the receiver side. For sigil scrolls
-      // we rebuild via makeMagicScroll so the .use binding is intact.
-      const inv = state.player.inventory;
-      if (inv.length >= 6) {
-        appendChat("system", `${multi.partner?.name || "Partner"} tried to gift you ${msg.item?.name || "an item"}, but your bag is full.`, false);
-        updated = false;
-        break;
-      }
-      const fallback = {
-        name: String(msg.item?.name || "Gift"),
-        desc: String(msg.item?.desc || ""),
-        consumeOnUse: msg.item?.consumeOnUse !== false,
-        use() { setMessage(`${this.name} has no power here. (Gifted from ${multi.partner?.name || "your partner"}.)`); }
-      };
-      const partnerName = multi.partner?.name || "Partner";
-      if (msg.item?.kind === "scroll" && msg.item.augmentId) {
-        import("./augments.js").then(({ makeMagicScroll }) => {
-          const rebuilt = makeMagicScroll(msg.item.augmentId) || fallback;
-          inv.push(rebuilt);
-          appendChat("system", `${partnerName} gifted you ${rebuilt.name}.`, false);
-          setMessage(`${partnerName} gifted you ${rebuilt.name}.`);
-        }).catch(() => {
-          inv.push(fallback);
-          appendChat("system", `${partnerName} gifted you ${fallback.name}.`, false);
-        });
-      } else {
-        inv.push(fallback);
-        appendChat("system", `${partnerName} gifted you ${fallback.name}.`, false);
-        setMessage(`${partnerName} gifted you ${fallback.name}.`);
-      }
-      updated = false;
-      break;
-    }
-    case "shop_visit": {
-      const name = multi.partner?.name || "Partner";
-      const shop = String(msg.kind || "").replace(/^./, (c) => c.toUpperCase());
-      appendChat("system", msg.entering ? `${name} entered the ${shop}.` : `${name} left the ${shop}.`, false);
-      updated = false;
-      break;
-    }
-    case "quest_kill": {
-      // Partner killed an enemy — credit our quest if it's a co-op slay quest.
-      if (multi.mode !== "coop") { updated = false; break; }
-      import("./quests.js").then(({ recordEnemyKill }) => recordEnemyKill(msg.enemyType, msg.floor));
-      updated = false;
-      break;
-    }
-    case "quest_pickup": {
-      if (multi.mode !== "coop") { updated = false; break; }
-      import("./quests.js").then(({ recordItemPickup }) => recordItemPickup(msg.itemName));
-      updated = false;
-      break;
-    }
-    case "quest_descend": {
-      if (multi.mode !== "coop") { updated = false; break; }
-      import("./quests.js").then(({ recordDescend }) => recordDescend(Number(msg.floor) || 0));
-      updated = false;
-      break;
-    }
-    case "pvp_hit": {
-      if (multi.mode !== "pvp") { updated = false; break; }
-      const reduced = applyPlayerHitLocal(Number(msg.dmg) || 0);
-      state.lastHitBy = String(msg.byName || (multi.partner?.name || "Partner"));
-      setMessage(`${state.lastHitBy} hits you for ${reduced}.`);
-      // Check for death / pvp kill
-      if (state.player.hp <= 0) {
-        state.player.hp = 0;
-        netSend({ type: "pvp_kill", victim: state.heroName || "you", killer: state.lastHitBy });
-      }
-      updated = false;
-      break;
-    }
-    case "partner_support": {
-      const partnerName = multi.partner?.name || "Partner";
-      if (msg.kind === "heal") {
-        const amt = Math.max(0, Number(msg.amount) || 0);
-        const before = state.player.hp;
-        state.player.hp = Math.min(state.player.maxHp, state.player.hp + amt);
-        const gained = state.player.hp - before;
-        setMessage(`${partnerName} heals you for ${gained}.`);
-      } else if (msg.kind === "status") {
-        const kind = String(msg.status || "");
-        const turns = Math.max(1, Number(msg.turns) || 4);
-        const power = Math.max(1, Number(msg.power) || 1);
-        if (!state.player.statuses) state.player.statuses = [];
-        const cur = state.player.statuses.find((s) => s.kind === kind);
-        if (cur) { cur.turns = Math.max(cur.turns, turns); cur.power = Math.max(cur.power, power); }
-        else state.player.statuses.push({ kind, turns, power });
-        setMessage(`${partnerName} buffs you with ${kind}.`);
-      }
-      updated = false;
-      break;
-    }
-    case "pvp_kill": {
-      // Show kill banner
-      const banner = document.createElement("div");
-      banner.className = "pvp-kill-banner";
-      banner.innerHTML = `<strong>${escapeHtml(msg.victim)}</strong> felled by <strong>${escapeHtml(msg.killer)}</strong>`;
-      document.body.appendChild(banner);
-      setTimeout(() => banner.remove(), 4000);
-      updated = false;
-      break;
-    }
-    // ---- Guest receives host damage events + visuals ----
-    case "playerHit": {
-      if (multi.role !== "guest") { updated = false; break; }
-      const reduced = applyPlayerHitLocal(Number(msg.dmg) || 0);
-      if (msg.byName) state.lastHitBy = String(msg.byName);
-      if (msg.status) {
-        // Apply status to local player
-        const cur = state.player.statuses.find((s) => s.kind === msg.status);
-        if (cur) cur.turns = Math.max(cur.turns, 4);
-        else state.player.statuses.push({ kind: msg.status, turns: 4, power: 1 });
-      }
-      // setMessage so the player sees what hit them
-      setMessage(`${msg.byName || "An enemy"} hits you for ${reduced}.`);
-      updated = false;
-      break;
-    }
-    case "fx_burst": {
-      const t = ensureBurst(msg.x, msg.y, msg.color, msg.count);
-      updated = false;
-      break;
-    }
-    case "fx_beam": {
-      ensureBeam(msg.x1, msg.y1, msg.x2, msg.y2, msg.color);
-      updated = false;
-      break;
-    }
-    case "fx_shake": {
-      // Imported lazily to avoid pulling fx.js into this module top.
-      import("./fx.js").then(({ doScreenShake }) => doScreenShake(Number(msg.amt) || 4));
-      updated = false;
-      break;
-    }
-    case "ping": {
-      // Echo back as pong so the requester can measure RTT.
-      netSend({ type: "pong", t: msg.t });
-      updated = false;
-      break;
-    }
-    case "floor_effects": {
-      if (multi.role !== "guest") { updated = false; break; }
-      state.floorEffects = (msg.list || []).map((f) => ({ ...f }));
-      updated = false;
-      break;
-    }
-    case "pong": {
-      const sentAt = Number(msg.t) || 0;
-      if (sentAt > 0) {
-        multi.rttMs = Math.max(0, performance.now() - sentAt);
-        updatePartnerCard();
-      }
-      updated = false;
-      break;
-    }
-  }
-  if (updated) updatePartnerCard();
-}
-
+let pingTimer = null;
 function startPingLoop() {
-  if (multi.pingTimer) clearInterval(multi.pingTimer);
-  multi.pingTimer = setInterval(() => {
-    if (!multi.connected) return;
-    const t = performance.now();
-    multi.lastPingAt = t;
-    netSend({ type: "ping", t });
-  }, 4000);
+  if (pingTimer) clearInterval(pingTimer);
+  pingTimer = setInterval(sendPing, 4000);
 }
 function stopPingLoop() {
-  if (multi.pingTimer) { clearInterval(multi.pingTimer); multi.pingTimer = null; }
-  multi.rttMs = null;
+  if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+  session.rttMs = null;
 }
+
+// ---- host start gate ----
+//
+// When both clients have sent "ready" the host fires the chosen-mode
+// callback so the run can begin (the gate is wired by main.js).
+
+export function setHostStartCallback(fn) {
+  session._onReadyGate = () => {
+    if (!session.isHost()) return;
+    if (!session.ready || !session.partnerReady) return;
+    if (typeof fn === "function") {
+      session._onReadyGate = null;
+      fn();
+    }
+  };
+}
+
+// ---- partner-disconnect callback ----
 
 let disconnectHandler = null;
 export function setDisconnectHandler(fn) { disconnectHandler = fn; }
-function onPartnerDisconnect() {
-  if (disconnectHandler) disconnectHandler();
-}
 
-function applyPlayerHitLocal(amount) {
-  const ward = state.player.statuses && state.player.statuses.find((s) => s.kind === "ward");
-  const reduced = ward ? Math.max(1, Math.floor(amount * (1 - ward.power / 100))) : amount;
-  state.player.hp -= reduced;
-  return reduced;
-}
-
-// Lazy-import fx so we can call from the message handler without forcing
-// fx.js to be eager-imported by this module.
-function ensureBurst(x, y, color, count) {
-  import("./fx.js").then(({ spawnBurst }) => spawnBurst(x, y, color, count || 8));
-}
-function ensureBeam(x1, y1, x2, y2, color) {
-  import("./fx.js").then(({ spawnBeam }) => spawnBeam(x1, y1, x2, y2, color));
-}
-
-// ---- Host start gate ----
-
-// When both clients have sent "ready" the host triggers the chosen-mode
-// callback so the actual run begins (the start callback is wired by main.js
-// when the player presses "Begin").
-export function setHostStartCallback(fn) { multi.pendingHostStartCallback = fn; }
-
-function maybeStartHostMatch() {
-  if (multi.role !== "host") return;
-  if (!multi.ready || !multi.partnerReady) return;
-  if (typeof multi.pendingHostStartCallback === "function") {
-    const fn = multi.pendingHostStartCallback;
-    multi.pendingHostStartCallback = null;
-    fn();
-  }
-}
-
-// ---- Connection lifecycle ----
+// ---- standard handlers wiring ----
 
 function attachStdHandlers() {
-  onMessage(handleMessage);
+  onPacket(dispatch);
   onOpen(() => {
-    multi.connected = true;
+    session.connected = true;
     appendChat("system", "Connection open. Greeting partner…", false);
     sendHello();
     startPingLoop();
+    updatePartnerCard();
   });
   onClose(() => {
-    multi.connected = false;
+    session.connected = false;
     stopPingLoop();
-    onPartnerDisconnect();
+    if (disconnectHandler) disconnectHandler();
     appendChat("system", "Partner disconnected.", false);
+    updatePartnerCard();
   });
   onError((err) => {
     console.warn("net error", err);
@@ -528,10 +106,10 @@ function attachStdHandlers() {
   });
 }
 
+// ---- lifecycle ----
+
 export function startHost() {
-  reset();
-  multi.enabled = true;
-  multi.role = "host";
+  session.startHost();
   attachStdHandlers();
   return new Promise((resolve, reject) => {
     hostRoom({
@@ -543,9 +121,7 @@ export function startHost() {
 }
 
 export function joinAsGuest(code) {
-  reset();
-  multi.enabled = true;
-  multi.role = "guest";
+  session.startGuest();
   attachStdHandlers();
   return new Promise((resolve, reject) => {
     joinRoom(code, {
@@ -557,213 +133,15 @@ export function joinAsGuest(code) {
 
 export function leaveMatch() {
   closeConnection();
-  reset();
+  session.end();
 }
 
-// ---- Chat UI helpers ----
+// `reset()` used to be a stronger sledgehammer that wiped session.mode.
+// Subsystems that *truly* want to end multiplayer should call leaveMatch().
+// We keep `reset()` exported so existing `multi.reset()` callers don't
+// break; it routes to leaveMatch().
+export function reset() { leaveMatch(); }
 
-function appendChat(name, text, isMe) {
-  if (!ui.chatLog) return;
-  const row = document.createElement("div");
-  row.className = "chat-line" + (isMe ? " me" : (name === "system" ? " system" : ""));
-  if (name === "system") {
-    row.innerHTML = `<em>${escapeHtml(text)}</em>`;
-  } else {
-    row.innerHTML = `<strong>${escapeHtml(name)}:</strong> ${escapeHtml(text)}`;
-  }
-  ui.chatLog.appendChild(row);
-  ui.chatLog.scrollTop = ui.chatLog.scrollHeight;
-  // Auto-show chat when a message arrives if the user has opted in
-  if (ui.chatBox && multi.connected) ui.chatBox.classList.remove("hidden");
-}
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
-}
-
-export function isMultiplayer() { return multi.enabled && multi.connected; }
-export function isHost() { return multi.role === "host"; }
-export function isGuest() { return multi.role === "guest"; }
-// Is this client supposed to skip authoritative simulation work (enemy AI,
-// chest mutations, floor effects)? Only when we're a connected guest.
-export function isGuestActive() { return multi.enabled && multi.connected && multi.role === "guest"; }
-// Should this client broadcast world state to its peer?
-export function isHostActive() { return multi.enabled && multi.connected && multi.role === "host"; }
-
-export function partnerOnSameFloor() {
-  return !!(multi.partner && multi.partner.floor === state.floor);
-}
-
-// ---- Phase 2: world state broadcasts (host only) ----
-
-function serializeEnemy(e) {
-  return {
-    id: e.id, type: e.type, name: e.name,
-    x: e.x, y: e.y,
-    hp: e.hp, maxHp: e.maxHp,
-    atk: e.atk, baseAtk: e.baseAtk,
-    vision: e.vision,
-    weak: e.weak || [], resist: e.resist || [],
-    boss: !!e.boss,
-    statuses: (e.statuses || []).map((s) => ({ ...s })),
-    actInterval: e.actInterval,
-    protocol: e.protocol,
-    dying: e.dying || 0
-  };
-}
-
-function serializeChest(c) {
-  // Exclude loot — only the opener's client needs it.
-  return { id: c.id, x: c.x, y: c.y, opened: !!c.opened };
-}
-
-export function sendEnemyList(floor) {
-  if (!isHostActive()) return;
-  const list = (state.enemies || []).map(serializeEnemy);
-  netSend({ type: "enemies", floor, list });
-}
-
-// Track which enemies changed since last broadcast so deltas stay small.
-const enemySnap = new Map(); // id -> last sent snapshot
-
-function snapKey(e) {
-  // Build a small fingerprint of fields that get rendered.
-  return `${e.x},${e.y},${e.hp},${e.dying || 0},${(e.statuses || []).map((s) => `${s.kind}:${s.turns}:${s.power}`).join("|")}`;
-}
-
-export function broadcastEnemyDeltas() {
-  if (!isHostActive()) return;
-  const seen = new Set();
-  for (const e of state.enemies) {
-    seen.add(e.id);
-    const key = snapKey(e);
-    if (enemySnap.get(e.id) === key) continue;
-    enemySnap.set(e.id, key);
-    netSend({
-      type: "enemy_delta",
-      id: e.id,
-      x: e.x, y: e.y,
-      hp: e.hp,
-      dying: e.dying || 0,
-      statuses: (e.statuses || []).map((s) => ({ ...s }))
-    });
-  }
-  // Removals — enemies that were in snap but not in current list anymore.
-  for (const id of [...enemySnap.keys()]) {
-    if (!seen.has(id)) {
-      enemySnap.delete(id);
-      netSend({ type: "enemy_remove", id });
-    }
-  }
-}
-
-export function clearEnemySnap() { enemySnap.clear(); }
-
-// ---- Phase 2 combat: guest -> host mutation forwarding ----
-
-// Guests forward raw mutations to the host so the host's authoritative
-// state stays in sync after a guest action. The host's broadcastEnemyDeltas
-// then replays the result to both clients.
-
-export function syncRemoteDamage(enemyId, amount, school) {
-  if (!isGuestActive()) return;
-  netSend({ type: "remote_damage", id: enemyId, amount, school });
-}
-export function syncRemoteApplyStatus(enemyId, kind, turns, power) {
-  if (!isGuestActive()) return;
-  netSend({ type: "remote_apply_status", id: enemyId, kind, turns, power });
-}
-export function syncRemoteRemoveStatus(enemyId, kind) {
-  if (!isGuestActive()) return;
-  netSend({ type: "remote_remove_status", id: enemyId, kind });
-}
-
-// ---- Phase 2 combat: host -> guest damage delivery ----
-
-export function deliverPlayerHitToGuest(dmg, byName, status) {
-  if (!isHostActive()) return;
-  netSend({ type: "playerHit", side: "guest", dmg, byName, status });
-}
-
-// ---- Phase 2 visual fx broadcast (host -> guest) ----
-
-export function broadcastFxBurst(x, y, color, count) {
-  if (!isHostActive()) return;
-  netSend({ type: "fx_burst", x, y, color, count });
-}
-export function broadcastFxBeam(x1, y1, x2, y2, color) {
-  if (!isHostActive()) return;
-  netSend({ type: "fx_beam", x1, y1, x2, y2, color });
-}
-export function broadcastFxShake(amt) {
-  if (!isHostActive()) return;
-  netSend({ type: "fx_shake", amt });
-}
-
-// ---- Floor effects (host owns) ----
-export function sendFloorEffects() {
-  if (!isHostActive()) return;
-  netSend({
-    type: "floor_effects",
-    list: (state.floorEffects || []).map((f) => ({ ...f }))
-  });
-}
-
-// ---- Chests are per-player ----
-// Each player has their own copy of every chest, identical contents
-// thanks to seeded RNG. Opening one is purely local — no sync needed.
-export function syncOpenChest() { /* removed: chests are per-player */ }
-export function broadcastChestOpened() { /* removed */ }
-
-// ---- Gifting ----
-// Send a serializable item from inventory to the partner. Function objects
-// (.use) get rebuilt on the receiving side from kind hints when possible;
-// for relics with bound effects, the item carries flavor only.
-export function sendGiftItem(item) {
-  if (!isMultiplayer() || !item) return;
-  netSend({
-    type: "gift_item",
-    item: {
-      name: String(item.name || "Gift"),
-      desc: String(item.desc || ""),
-      kind: item.augmentId ? "scroll" : (item.questItem ? "quest" : "relic"),
-      augmentId: item.augmentId || null,
-      consumeOnUse: item.consumeOnUse !== false
-    }
-  });
-}
-
-// ---- Shop / town interactions ----
-export function sendShopVisit(kind, entering) {
-  if (!isMultiplayer()) return;
-  netSend({ type: "shop_visit", kind, entering: !!entering });
-}
-
-// ---- Co-op support (heals/buffs targeted at partner) ----
-// kind = "heal" with amount, or "status" with status/turns/power.
-export function sendPartnerSupport(payload) {
-  if (!isMultiplayer()) return;
-  netSend({ type: "partner_support", ...payload });
-}
-
-// ---- PvP friendly fire ----
-// Either side can melee the partner directly. Receiver applies the damage
-// to its local player.
-export function sendPvpHit(dmg, byName) {
-  if (!isMultiplayer() || multi.mode !== "pvp") return;
-  netSend({ type: "pvp_hit", dmg, byName });
-}
-
-// ---- Quest progress sharing (co-op only) ----
-export function sendQuestKill(enemyType, floor) {
-  if (!isMultiplayer() || multi.mode !== "coop") return;
-  netSend({ type: "quest_kill", enemyType, floor });
-}
-export function sendQuestPickup(itemName) {
-  if (!isMultiplayer() || multi.mode !== "coop") return;
-  netSend({ type: "quest_pickup", itemName });
-}
-export function sendQuestDescend(floor) {
-  if (!isMultiplayer() || multi.mode !== "coop") return;
-  netSend({ type: "quest_descend", floor });
-}
+// Chest helpers — chests are per-player; keep stubs so old callers compile.
+export function syncOpenChest() {}
+export function broadcastChestOpened() {}

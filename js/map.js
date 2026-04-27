@@ -5,7 +5,8 @@ import { srnd as rnd, spick as pick, srand, setSeed } from "./rng.js";
 import { makeRelic } from "./items.js";
 import { makeMagicScroll } from "./augments.js";
 import { isFindQuestForFloor, consumePlantedFindQuestItem } from "./quests.js";
-import { isGuestActive } from "./multi.js";
+import { session } from "./net/session.js";
+const isGuestActive = () => session.isGuestActive();
 import { SPELL_LIBRARY, rankOf, isSpellForPlayer } from "./spells/index.js";
 import { makeBossName } from "./boss.js";
 

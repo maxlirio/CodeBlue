@@ -1,11 +1,14 @@
 import { tileSize } from "./config.js";
 import { state } from "./state.js";
 import { inBounds, rnd } from "./utils.js";
+import { session } from "./net/session.js";
 import {
-  isHostActive, isGuestActive,
   broadcastFxBurst, broadcastFxBeam, broadcastFxShake,
   syncRemoteApplyStatus, syncRemoteRemoveStatus
-} from "./multi.js";
+} from "./net/sync.js";
+
+const isHostActive = () => session.isHostActive();
+const isGuestActive = () => session.isGuestActive();
 
 export function spawnBurst(x, y, color, count = 10, opts = {}) {
   for (let i = 0; i < count; i++) {

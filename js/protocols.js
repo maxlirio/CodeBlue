@@ -5,20 +5,12 @@ import {
   hasStatus, applyStatus, isWallBlocked
 } from "./fx.js";
 import { playerTakeDamage, clearDeadEnemies } from "./combat.js";
-import { isGuestActive, isHostActive, broadcastEnemyDeltas, deliverPlayerHitToGuest, multi, sendFloorEffects } from "./multi.js";
+import { session } from "./net/session.js";
+import { broadcastEnemyDeltas, deliverPlayerHitToGuest, sendFloorEffects } from "./net/sync.js";
 
-// Pick the closer of host / partner for an enemy to chase.
-function pickTarget(enemy) {
-  if (!multi.enabled || !multi.partner || multi.partner.floor !== state.floor) {
-    return state.player;
-  }
-  const dHost = distance(enemy, state.player);
-  const dPartner = distance(enemy, multi.partner);
-  if (dPartner < dHost) return multi.partner;
-  // tie or host closer — host
-  return state.player;
-}
-function isPartner(t) { return multi.partner && t === multi.partner; }
+// Closest player (self in solo, or whichever of self/partner is nearer).
+function pickTarget(enemy) { return session.closestPlayer(enemy); }
+function isPartner(t) { return session.isPartner(t); }
 
 function stepTo(enemy, tx, ty, { ethereal = false } = {}) {
   if (!inBounds(tx, ty)) return false;
@@ -26,10 +18,10 @@ function stepTo(enemy, tx, ty, { ethereal = false } = {}) {
   if (!ethereal && isWallBlocked(tx, ty)) return false;
   const other = enemyAt(tx, ty);
   if (other && other !== enemy) return false;
-  if (state.player.x === tx && state.player.y === ty) return false;
-  // Partner tile blocks enemies too (unless ethereal).
-  if (multi.enabled && multi.partner && multi.partner.floor === state.floor &&
-      multi.partner.x === tx && multi.partner.y === ty) return false;
+  // Any friendly avatar tile blocks enemies (unless ethereal).
+  for (const p of session.players()) {
+    if (p.x === tx && p.y === ty) return false;
+  }
   enemy.x = tx;
   enemy.y = ty;
   return true;
@@ -316,14 +308,15 @@ function fireBossNova(e) {
       if (!inBounds(tx, ty) || state.map[ty][tx] === 1) break;
       spawnBurst(tx, ty, "#ff5dc1", 7);
       const raw = Math.max(3, e.atk);
-      if (state.player.x === tx && state.player.y === ty) {
-        const dmg = playerTakeDamage(raw);
-        state.lastHitBy = e.name;
-        setMessage(`${e.name} nova scorches you for ${dmg}.`);
-      }
-      if (multi.enabled && multi.partner && multi.partner.floor === state.floor &&
-          multi.partner.x === tx && multi.partner.y === ty) {
-        deliverPlayerHitToGuest(raw, e.name);
+      for (const p of session.players()) {
+        if (p.x !== tx || p.y !== ty) continue;
+        if (isPartner(p)) {
+          deliverPlayerHitToGuest(raw, e.name);
+        } else {
+          const dmg = playerTakeDamage(raw);
+          state.lastHitBy = e.name;
+          setMessage(`${e.name} nova scorches you for ${dmg}.`);
+        }
       }
     }
   }
@@ -349,11 +342,8 @@ function bossSlamTelegraph(e) {
 
 function bossSlamRelease(e) {
   e.protoState.telegraph = null;
-  // Hit any player adjacent to the boss.
-  const targets = [state.player];
-  if (multi.enabled && multi.partner && multi.partner.floor === state.floor) targets.push(multi.partner);
   let hit = false;
-  for (const t of targets) {
+  for (const t of session.players()) {
     if (distance(e, t) <= 1) {
       meleePlayer(e, 1.7, `${e.name} SLAMS!`, t);
       hit = true;
@@ -373,11 +363,13 @@ function bossMarkAndSmite(e, target) {
     e.protoState.smiteTarget = isPartner(target) ? "partner" : "host";
     return;
   }
-  // Second beat — smite. Use the same target as the mark.
+  // Second beat — smite. Use the same target as the mark, falling back
+  // to whichever player is closer if the marked one is gone (left floor,
+  // dead, etc.).
   e.protoState.markedThisCombo = false;
   const wantPartner = e.protoState.smiteTarget === "partner";
-  const smiteAt = wantPartner && multi.partner && multi.partner.floor === state.floor
-    ? multi.partner : state.player;
+  const partner = session.alivePartner();
+  const smiteAt = wantPartner && partner ? partner : state.player;
   e.protoState.smiteTarget = null;
   if (hasLineOfSight(e.x, e.y, smiteAt.x, smiteAt.y)) {
     const raw = Math.max(4, e.atk + 3);
@@ -509,7 +501,7 @@ const HANDLERS = {
 
 export function tickEnemies(dt) {
   // Guest: enemy state arrives via host broadcasts; do not tick AI here.
-  if (isGuestActive()) return;
+  if (session.isGuestActive()) return;
   for (const e of state.enemies) {
     if (e.hp <= 0) continue;
     if (e.protoState) {
@@ -530,7 +522,7 @@ export function tickEnemies(dt) {
   }
   clearDeadEnemies();
   // Host: push state deltas after every tick so the guest stays synced.
-  if (isHostActive()) {
+  if (session.isHostActive()) {
     broadcastEnemyDeltas();
     // Floor effects (burn tiles, mines, traps, walls) churn slowly. Send
     // a fresh snapshot every tick — list is small and always up to date.

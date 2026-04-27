@@ -12,13 +12,13 @@ import { openShop } from "./shop.js";
 import { SCHOOL_COLORS } from "./config.js";
 import { showResult } from "./result.js";
 import { showCutscene, recordDescend, recordItemPickup } from "./quests.js";
+import { session } from "./net/session.js";
 import {
   sendPosition, sendFloor, sendHello,
-  sendEnemyList, clearEnemySnap, isHostActive,
-  isGuestActive,
+  sendEnemyList, clearEnemySnap,
   sendShopVisit, sendQuestPickup, sendQuestDescend,
-  multi, sendPvpHit
-} from "./multi.js";
+  sendPvpHit
+} from "./net/sync.js";
 
 const PLAYER_MOVE_COOLDOWN_MS = 110;
 
@@ -184,7 +184,7 @@ function enterFloor(floor, { fromAbove }) {
   // Multiplayer: host broadcasts the authoritative enemy + chest list
   // for this floor. Reset the delta snapshot so subsequent ticks emit
   // a fresh stream.
-  if (isHostActive()) {
+  if (session.isHostActive()) {
     clearEnemySnap();
     sendEnemyList(floor);
   }
@@ -423,14 +423,17 @@ export function tryMove(dx, dy) {
   if (foe) { playerAttack(foe); return; }
 
   // PvP: bumping into the partner deals damage instead of stepping onto them.
-  if (multi.enabled && multi.connected && multi.mode === "pvp" &&
-      multi.partner && multi.partner.floor === state.floor &&
-      multi.partner.x === nx && multi.partner.y === ny) {
+  if (session.isPvp() && session.partnerAt(nx, ny)) {
     const dmg = rnd(state.player.atk - 1, state.player.atk + 3);
     sendPvpHit(dmg, state.heroName || "your rival");
     spawnBurst(nx, ny, "#ff7a82", 9);
-    setMessage(`You strike ${multi.partner.name} for ${dmg}.`);
+    setMessage(`You strike ${session.partner.name} for ${dmg}.`);
     state.player.moveTimer = 200;
+    return;
+  }
+  // Coop: partner tile is solid — bump message, don't step onto them.
+  if (session.partnerAt(nx, ny)) {
+    setMessage(`${session.partner.name} is in your way.`);
     return;
   }
 

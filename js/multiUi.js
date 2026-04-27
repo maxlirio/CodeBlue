@@ -4,9 +4,11 @@
 import { state, ui } from "./state.js";
 import { setMessage } from "./utils.js";
 import {
-  multi, startHost, joinAsGuest, leaveMatch,
-  sendHello, sendReady, sendChat, setHostStartCallback
+  startHost, joinAsGuest, leaveMatch,
+  sendHello, sendReady, sendChat, setHostStartCallback,
+  sendSeed
 } from "./multi.js";
+import { session } from "./net/session.js";
 import { setSeed, randomSeedString } from "./rng.js";
 
 let resolveOpen = null; // promise resolver for the overlay flow
@@ -67,17 +69,12 @@ function renderHostSetup() {
     renderHostWaiting("opening room…");
     try {
       const code = await startHost();
-      // startHost() calls reset() internally, so set the chosen mode + seed
-      // *after* startHost, not before.
-      multi.mode = chosenMode;
+      session.mode = chosenMode;
       const seed = randomSeedString();
-      multi.seed = seed;
+      session.seed = seed;
       setSeed(seed);
       state.seed = seed;
-      // Wait for guest to connect; multi.js fires onOpen which sends hello.
-      // We watch via onOpen (via multi.js) and also re-render to show code.
       renderHostWaiting(code);
-      // Once the guest is connected, broadcast seed + mode then show "Begin".
       pollForGuestThenAdvance();
     } catch (err) {
       stage().innerHTML = `<p class="multi-err">Could not open room: ${err.type || err.message || err}</p><button class="choice" id="multiBackBtn"><strong>Back</strong></button>`;
@@ -109,15 +106,9 @@ function renderHostWaiting(codeOrText) {
 }
 
 function pollForGuestThenAdvance() {
-  // Wait until multi.connected is true (set by onOpen in multi.js), then
-  // broadcast the seed + mode and advance both players to "Begin".
   const tick = () => {
-    if (!ui.multiOverlay.classList.contains("hidden") === false) return; // overlay closed
-    if (multi.connected) {
-      // Send seed + mode
-      // We call netSend directly via multi.js helper by importing? Simpler:
-      // multi.js doesn't expose seed broadcast; use sendHelloOrSeed below.
-      sendSeedAndMode();
+    if (session.connected) {
+      sendSeed();
       renderHostBegin();
       return;
     }
@@ -126,16 +117,8 @@ function pollForGuestThenAdvance() {
   tick();
 }
 
-function sendSeedAndMode() {
-  // Use the net.js send via re-export pattern: we import netSend through multi.js
-  // but it's not exposed. Re-import from net.js to send the typed message.
-  import("./net.js").then(({ send }) => {
-    send({ type: "seed", seed: multi.seed, mode: multi.mode });
-  });
-}
-
 function renderHostBegin() {
-  const partnerName = multi.partner?.name || "Partner";
+  const partnerName = session.partner.name || "Partner";
   stage().innerHTML = `
     <div class="multi-form">
       <div class="multi-status good">Connected to <b>${escapeHtml(partnerName)}</b>.</div>
@@ -150,7 +133,7 @@ function renderHostBegin() {
     // run start gate so we wait until the guest is ready too before the
     // dungeon actually begins.
     setHostStartCallback(() => { /* set later by main.js */ });
-    close({ role: "host", mode: multi.mode, seed: multi.seed });
+    close({ role: "host", mode: session.mode, seed: session.seed });
   };
 }
 
@@ -194,15 +177,15 @@ function pollForSeedThenAdvance() {
   let attempts = 0;
   const tick = () => {
     attempts++;
-    if (multi.seed) {
+    if (session.seed) {
       stage().innerHTML = `
         <div class="multi-form">
-          <div class="multi-status good">Seed received. Mode: <b>${multi.mode.toUpperCase()}</b>.</div>
+          <div class="multi-status good">Seed received. Mode: <b>${session.mode.toUpperCase()}</b>.</div>
           <p class="multi-hint">Pick your class on the next screen — your friend will do the same.</p>
           <div class="actions"><button class="choice" id="multiContinueBtn"><strong>Continue to class select</strong></button></div>
         </div>
       `;
-      document.getElementById("multiContinueBtn").onclick = () => close({ role: "guest", mode: multi.mode, seed: multi.seed });
+      document.getElementById("multiContinueBtn").onclick = () => close({ role: "guest", mode: session.mode, seed: session.seed });
       return;
     }
     if (attempts > 80) { // ~16s
@@ -233,7 +216,7 @@ export function initChat() {
   });
   // Global "T" to focus chat (when in multiplayer)
   window.addEventListener("keydown", (e) => {
-    if (!multi.enabled || !multi.connected) return;
+    if (!session.isMultiplayer()) return;
     if (document.activeElement === ui.chatInput) return;
     const tag = document.activeElement?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA") return;

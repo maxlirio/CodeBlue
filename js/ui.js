@@ -3,7 +3,7 @@ import { CLASS_OPTIONS, SCHOOL_COLORS, STATUS_DEFS } from "./config.js";
 import { SPELL_BY_ID, rankOf } from "./spells/index.js";
 import { drawPortrait } from "./render.js";
 import { chooseClass } from "./turn.js";
-import { multi } from "./multi.js";
+import { session } from "./net/session.js";
 
 const heroNameInput = document.getElementById("heroName");
 const rerollNameBtn = document.getElementById("rerollName");
@@ -127,7 +127,7 @@ export function updateUi() {
   }
 
   if (state.player.inventory.length) {
-    const showGift = !!(multi.enabled && multi.connected);
+    const showGift = session.isMultiplayer();
     const items = state.player.inventory.map((item, i) =>
       `<li class="tappable" data-relic-idx="${i}">
         <span class="num">${i + 1}</span>

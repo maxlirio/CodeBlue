@@ -6,7 +6,10 @@ import {
   hasStatus, applyStatus, removeStatus, addFloorEffect
 } from "./fx.js";
 import { recordEnemyKill } from "./quests.js";
-import { isGuestActive, syncRemoteDamage, sendQuestKill } from "./multi.js";
+import { session } from "./net/session.js";
+import { syncRemoteDamage, sendQuestKill } from "./net/sync.js";
+
+const isGuestActive = () => session.isGuestActive();
 
 export function useWeaponAbility() {
   const enchant = state.player.weaponEnchant;

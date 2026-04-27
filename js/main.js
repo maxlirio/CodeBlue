@@ -7,7 +7,7 @@ import { setSeed, randomSeedString } from "./rng.js";
 import { initApplyOverlay } from "./augments.js";
 import { initQuestUi } from "./quests.js";
 import { openMultiOverlay, initChat, showChatBox } from "./multiUi.js";
-import { multi } from "./multi.js";
+import { session } from "./net/session.js";
 import "./audio.js";
 
 // Read a one-shot "play this dungeon" seed from the URL, then clear the URL.
@@ -28,16 +28,15 @@ loop();
 setMessage("Choose your class to start the run.");
 
 // Wire the partner-disconnect overlay.
-import("./multi.js").then(({ setDisconnectHandler, reset, multi: m, isMultiplayer }) => {
+import("./multi.js").then(({ setDisconnectHandler, leaveMatch }) => {
   setDisconnectHandler(() => {
-    if (!m.enabled) return;
+    if (!session.enabled) return;
     if (ui.disconnectOverlay) ui.disconnectOverlay.classList.remove("hidden");
   });
   if (ui.continueSoloBtn) {
     ui.continueSoloBtn.addEventListener("click", () => {
       ui.disconnectOverlay.classList.add("hidden");
-      reset();
-      // Clear partner avatar
+      leaveMatch();
       if (ui.partnerCard) ui.partnerCard.classList.add("hidden");
       if (ui.chatBox) ui.chatBox.classList.add("hidden");
       setMessage("Continuing solo. Your run carries on.");
@@ -45,7 +44,6 @@ import("./multi.js").then(({ setDisconnectHandler, reset, multi: m, isMultiplaye
   }
   if (ui.endRunBtn) {
     ui.endRunBtn.addEventListener("click", () => {
-      // Reload to a clean class screen
       location.hash = "";
       location.reload();
     });
@@ -60,7 +58,7 @@ if (ui.playWithFriendsBtn) {
     // class screen so both players know they're in a multiplayer run.
     if (ui.multiBanner) {
       ui.multiBanner.classList.remove("hidden");
-      const partnerName = multi.partner?.name || "Partner";
+      const partnerName = session.partner.name || "Partner";
       ui.multiBanner.innerHTML =
         `<strong>Multiplayer · ${result.mode.toUpperCase()}</strong>` +
         `<span>Connected to ${partnerName}. Pick your class — your partner is doing the same.</span>`;
