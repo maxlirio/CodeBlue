@@ -7,6 +7,19 @@ import {
 import { playerTakeDamage, clearDeadEnemies } from "./combat.js";
 import { isGuestActive, isHostActive, broadcastEnemyDeltas, deliverPlayerHitToGuest, multi, sendFloorEffects } from "./multi.js";
 
+// Pick the closer of host / partner for an enemy to chase.
+function pickTarget(enemy) {
+  if (!multi.enabled || !multi.partner || multi.partner.floor !== state.floor) {
+    return state.player;
+  }
+  const dHost = distance(enemy, state.player);
+  const dPartner = distance(enemy, multi.partner);
+  if (dPartner < dHost) return multi.partner;
+  // tie or host closer — host
+  return state.player;
+}
+function isPartner(t) { return multi.partner && t === multi.partner; }
+
 function stepTo(enemy, tx, ty, { ethereal = false } = {}) {
   if (!inBounds(tx, ty)) return false;
   if (!ethereal && !isWalkable(tx, ty)) return false;
@@ -14,6 +27,9 @@ function stepTo(enemy, tx, ty, { ethereal = false } = {}) {
   const other = enemyAt(tx, ty);
   if (other && other !== enemy) return false;
   if (state.player.x === tx && state.player.y === ty) return false;
+  // Partner tile blocks enemies too (unless ethereal).
+  if (multi.enabled && multi.partner && multi.partner.floor === state.floor &&
+      multi.partner.x === tx && multi.partner.y === ty) return false;
   enemy.x = tx;
   enemy.y = ty;
   return true;
@@ -46,22 +62,15 @@ function randomStep(enemy) {
   stepTo(enemy, enemy.x + dx, enemy.y + dy);
 }
 
-function meleePlayer(enemy, mult = 1, label = null) {
+function meleePlayer(enemy, mult = 1, label = null, target = null) {
+  if (!target) target = state.player;
   const raw = Math.max(1, Math.floor((enemy.atk + Math.floor(state.floor / 3)) * mult));
-  // In multiplayer, prefer hitting whichever player is adjacent. If only the
-  // partner is adjacent, deliver the hit to them. If both, 50/50.
-  if (isHostActive() && multi.partner && multi.partner.floor === state.floor) {
-    const dHost = distance(enemy, state.player);
-    const dPartner = distance(enemy, multi.partner);
-    const partnerAdj = dPartner === 1;
-    const hostAdj = dHost === 1;
-    if (partnerAdj && (!hostAdj || Math.random() < 0.5)) {
-      // Strike partner — broadcast to guest.
-      deliverPlayerHitToGuest(raw, enemy.name);
-      spawnBurst(multi.partner.x, multi.partner.y, "#ff758f", 7);
-      setMessage(`${enemy.name} hits ${multi.partner.name || "your partner"}.`);
-      return raw;
-    }
+  if (isPartner(target)) {
+    // Hit partner — host computes, broadcasts to guest who applies it.
+    deliverPlayerHitToGuest(raw, enemy.name);
+    spawnBurst(target.x, target.y, "#ff758f", 7);
+    setMessage(`${enemy.name} strikes ${target.name || "your partner"}.`);
+    return raw;
   }
   const dmg = playerTakeDamage(raw);
   spawnBurst(state.player.x, state.player.y, "#ff758f", 7);
@@ -79,72 +88,86 @@ function hasLineOfSight(x1, y1, x2, y2) {
   return true;
 }
 
-function advanceAndStrike(e, mult = 1) {
-  stepToward(e, state.player);
-  if (distance(e, state.player) === 1) meleePlayer(e, mult);
+function advanceAndStrike(e, mult = 1, target = null) {
+  if (!target) target = pickTarget(e);
+  stepToward(e, target);
+  if (distance(e, target) === 1) meleePlayer(e, mult, null, target);
 }
 
 function pSlime(e) {
-  const d = distance(e, state.player);
-  if (d === 1) return meleePlayer(e);
-  if (d <= e.vision) { advanceAndStrike(e); return; }
+  const t = pickTarget(e);
+  const d = distance(e, t);
+  if (d === 1) return meleePlayer(e, 1, null, t);
+  if (d <= e.vision) { advanceAndStrike(e, 1, t); return; }
   if (Math.random() < 0.35) randomStep(e);
 }
 
 function pGoblin(e) {
-  const d = distance(e, state.player);
-  if (d === 1) return meleePlayer(e);
-  if (d <= e.vision) advanceAndStrike(e);
+  const t = pickTarget(e);
+  const d = distance(e, t);
+  if (d === 1) return meleePlayer(e, 1, null, t);
+  if (d <= e.vision) advanceAndStrike(e, 1, t);
 }
 
 function pBat(e) {
-  const d = distance(e, state.player);
-  if (d === 1) { meleePlayer(e); stepAway(e, state.player); return; }
+  const t = pickTarget(e);
+  const d = distance(e, t);
+  if (d === 1) { meleePlayer(e, 1, null, t); stepAway(e, t); return; }
   if (d <= e.vision) {
-    stepToward(e, state.player);
-    if (distance(e, state.player) === 1) { meleePlayer(e); stepAway(e, state.player); return; }
-    if (distance(e, state.player) > 3) stepToward(e, state.player);
-    if (distance(e, state.player) === 1) { meleePlayer(e); stepAway(e, state.player); }
+    stepToward(e, t);
+    if (distance(e, t) === 1) { meleePlayer(e, 1, null, t); stepAway(e, t); return; }
+    if (distance(e, t) > 3) stepToward(e, t);
+    if (distance(e, t) === 1) { meleePlayer(e, 1, null, t); stepAway(e, t); }
   }
 }
 
 function pSkeleton(e) {
-  const d = distance(e, state.player);
-  if (d === 1) return meleePlayer(e);
-  if (d <= e.vision) advanceAndStrike(e);
+  const t = pickTarget(e);
+  const d = distance(e, t);
+  if (d === 1) return meleePlayer(e, 1, null, t);
+  if (d <= e.vision) advanceAndStrike(e, 1, t);
 }
 
 function pImp(e) {
   e.protoState ??= { shotTimer: 800 };
-  const d = distance(e, state.player);
-  if (d === 1) return meleePlayer(e);
-  if (d < 3) { stepAway(e, state.player); return; }
-  if (d <= 5 && hasLineOfSight(e.x, e.y, state.player.x, state.player.y)) {
+  const t = pickTarget(e);
+  const d = distance(e, t);
+  if (d === 1) return meleePlayer(e, 1, null, t);
+  if (d < 3) { stepAway(e, t); return; }
+  if (d <= 5 && hasLineOfSight(e.x, e.y, t.x, t.y)) {
     if (e.protoState.shotTimer <= 0) {
-      spawnBeam(e.x, e.y, state.player.x, state.player.y, "#ff7a3a");
-      const dmg = playerTakeDamage(Math.max(2, Math.floor(e.atk / 2) + 1));
-      applyStatus(state.player, "burn", 3, 2);
-      state.lastHitBy = e.name;
-      setMessage(`${e.name} spits fire: ${dmg} + burn.`);
+      spawnBeam(e.x, e.y, t.x, t.y, "#ff7a3a");
+      const raw = Math.max(2, Math.floor(e.atk / 2) + 1);
+      if (isPartner(t)) {
+        deliverPlayerHitToGuest(raw, e.name, "burn");
+        setMessage(`${e.name} spits fire at ${t.name || "your partner"}.`);
+      } else {
+        const dmg = playerTakeDamage(raw);
+        applyStatus(state.player, "burn", 3, 2);
+        state.lastHitBy = e.name;
+        setMessage(`${e.name} spits fire: ${dmg} + burn.`);
+      }
       e.protoState.shotTimer = 1500;
       return;
     }
   }
-  if (d > 6) stepToward(e, state.player);
+  if (d > 6) stepToward(e, t);
 }
 
 function pWolf(e) {
-  const d = distance(e, state.player);
-  if (d === 1) return meleePlayer(e, 1.15);
-  if (d <= e.vision) advanceAndStrike(e, 1.15);
+  const t = pickTarget(e);
+  const d = distance(e, t);
+  if (d === 1) return meleePlayer(e, 1.15, null, t);
+  if (d <= e.vision) advanceAndStrike(e, 1.15, t);
 }
 
 function pOrc(e) {
   e.protoState ??= { telegraphed: false };
-  const d = distance(e, state.player);
+  const t = pickTarget(e);
+  const d = distance(e, t);
   if (e.protoState.telegraphed) {
     e.protoState.telegraphed = false;
-    if (d === 1) { meleePlayer(e, 1.7, `${e.name} SLAMS you!`); doScreenShake(5); }
+    if (d === 1) { meleePlayer(e, 1.7, `${e.name} SLAMS you!`, t); doScreenShake(5); }
     else setMessage(`${e.name}'s slam whiffs.`);
     return;
   }
@@ -154,54 +177,58 @@ function pOrc(e) {
     setMessage(`${e.name} winds up a slam!`);
     return;
   }
-  if (d <= e.vision) stepToward(e, state.player);
+  if (d <= e.vision) stepToward(e, t);
 }
 
-function wraithStrike(e) {
-  const dmg = meleePlayer(e);
+function wraithStrike(e, target) {
+  const dmg = meleePlayer(e, 1, null, target);
   const heal = Math.ceil(dmg / 2);
   e.hp = Math.min(e.maxHp, e.hp + heal);
   spawnBurst(e.x, e.y, "#9bc4ff", 6);
 }
 
 function pWraith(e) {
-  const d = distance(e, state.player);
-  if (d === 1) return wraithStrike(e);
+  const t = pickTarget(e);
+  const d = distance(e, t);
+  if (d === 1) return wraithStrike(e, t);
   if (d <= e.vision) {
-    stepToward(e, state.player, { ethereal: true });
-    if (distance(e, state.player) === 1) wraithStrike(e);
+    stepToward(e, t, { ethereal: true });
+    if (distance(e, t) === 1) wraithStrike(e, t);
   }
 }
 
 // Spider — bursts in, bites and applies poison, then strafes.
 function pSpider(e) {
   e.protoState ??= { lunged: 0 };
-  const d = distance(e, state.player);
+  const t = pickTarget(e);
+  const d = distance(e, t);
   if (d === 1) {
-    meleePlayer(e);
-    applyStatus(state.player, "burn", 4, 2);   // venom = small burn-like DOT
-    setMessage(`${e.name} bites — venom courses through you.`);
-    spawnBurst(state.player.x, state.player.y, "#5b3a8e", 6);
-    if (Math.random() < 0.6) stepAway(e, state.player);
+    meleePlayer(e, 1, null, t);
+    if (isPartner(t)) deliverPlayerHitToGuest(0, e.name, "burn");
+    else applyStatus(state.player, "burn", 4, 2);
+    setMessage(`${e.name} bites${isPartner(t) ? ` ${t.name || "your partner"}` : " you"} — venom.`);
+    spawnBurst(t.x, t.y, "#5b3a8e", 6);
+    if (Math.random() < 0.6) stepAway(e, t);
     return;
   }
   if (d <= e.vision) {
-    // Two-step burst: cover ground fast
-    stepToward(e, state.player);
-    if (distance(e, state.player) > 1) stepToward(e, state.player);
-    if (distance(e, state.player) === 1) {
-      meleePlayer(e);
-      applyStatus(state.player, "burn", 4, 2);
-      spawnBurst(state.player.x, state.player.y, "#5b3a8e", 6);
+    stepToward(e, t);
+    if (distance(e, t) > 1) stepToward(e, t);
+    if (distance(e, t) === 1) {
+      meleePlayer(e, 1, null, t);
+      if (isPartner(t)) deliverPlayerHitToGuest(0, e.name, "burn");
+      else applyStatus(state.player, "burn", 4, 2);
+      spawnBurst(t.x, t.y, "#5b3a8e", 6);
     }
   }
 }
 
 // Ghoul — slow, tough, leeches HP on hit. Resists chill but is hurt by life.
 function pGhoul(e) {
-  const d = distance(e, state.player);
+  const t = pickTarget(e);
+  const d = distance(e, t);
   if (d === 1) {
-    const dmg = meleePlayer(e, 1.1, `${e.name} rends you, claws drinking blood.`);
+    const dmg = meleePlayer(e, 1.1, `${e.name} rends ${isPartner(t) ? (t.name || "your partner") : "you"}, claws drinking blood.`, t);
     const heal = Math.min(e.maxHp - e.hp, Math.ceil(dmg * 0.6));
     if (heal > 0) {
       e.hp += heal;
@@ -209,16 +236,17 @@ function pGhoul(e) {
     }
     return;
   }
-  if (d <= e.vision) advanceAndStrike(e, 1.1);
+  if (d <= e.vision) advanceAndStrike(e, 1.1, t);
 }
 
 // Shaman — caster. Stays at range, throws hex bolts that curse, occasionally
 // buffs nearby allies' speed (reduces their actInterval).
 function pShaman(e) {
   e.protoState ??= { castTimer: 1200, buffTimer: 4500 };
-  const d = distance(e, state.player);
-  if (d === 1) { stepAway(e, state.player); return; }
-  if (d < 3) { stepAway(e, state.player); return; }
+  const t = pickTarget(e);
+  const d = distance(e, t);
+  if (d === 1) { stepAway(e, t); return; }
+  if (d < 3) { stepAway(e, t); return; }
 
   // Periodic ally speed-up
   if (e.protoState.buffTimer <= 0) {
@@ -237,20 +265,25 @@ function pShaman(e) {
   }
 
   // Hex bolt
-  if (d <= e.vision && hasLineOfSight(e.x, e.y, state.player.x, state.player.y)) {
+  if (d <= e.vision && hasLineOfSight(e.x, e.y, t.x, t.y)) {
     if (e.protoState.castTimer <= 0) {
-      spawnBeam(e.x, e.y, state.player.x, state.player.y, "#84f6a6");
-      const dmg = playerTakeDamage(Math.max(2, Math.floor(e.atk * 0.9)));
-      applyStatus(state.player, "mark", 6, 1);  // mark = takes more damage
-      state.lastHitBy = e.name;
-      setMessage(`${e.name} hex-bolts you for ${dmg} and marks your soul.`);
+      spawnBeam(e.x, e.y, t.x, t.y, "#84f6a6");
+      const raw = Math.max(2, Math.floor(e.atk * 0.9));
+      if (isPartner(t)) {
+        deliverPlayerHitToGuest(raw, e.name, "mark");
+        setMessage(`${e.name} hex-bolts ${t.name || "your partner"} and marks them.`);
+      } else {
+        const dmg = playerTakeDamage(raw);
+        applyStatus(state.player, "mark", 6, 1);
+        state.lastHitBy = e.name;
+        setMessage(`${e.name} hex-bolts you for ${dmg} and marks your soul.`);
+      }
       e.protoState.castTimer = 1700;
       return;
     }
   }
-  // Reposition for line of sight
-  if (d > e.vision) stepToward(e, state.player);
-  else if (!hasLineOfSight(e.x, e.y, state.player.x, state.player.y)) stepToward(e, state.player);
+  if (d > e.vision) stepToward(e, t);
+  else if (!hasLineOfSight(e.x, e.y, t.x, t.y)) stepToward(e, t);
 }
 
 function spawnBossAdd(e) {
@@ -282,26 +315,30 @@ function fireBossNova(e) {
       const ty = e.y + dy * s;
       if (!inBounds(tx, ty) || state.map[ty][tx] === 1) break;
       spawnBurst(tx, ty, "#ff5dc1", 7);
+      const raw = Math.max(3, e.atk);
       if (state.player.x === tx && state.player.y === ty) {
-        const raw = Math.max(3, e.atk);
         const dmg = playerTakeDamage(raw);
         state.lastHitBy = e.name;
         setMessage(`${e.name} nova scorches you for ${dmg}.`);
+      }
+      if (multi.enabled && multi.partner && multi.partner.floor === state.floor &&
+          multi.partner.x === tx && multi.partner.y === ty) {
+        deliverPlayerHitToGuest(raw, e.name);
       }
     }
   }
   doScreenShake(8);
 }
 
-function bossCharge(e) {
-  // Lunge up to 3 tiles toward the player, then strike if adjacent.
-  for (let i = 0; i < 3 && distance(e, state.player) > 1; i++) {
-    if (!stepToward(e, state.player)) break;
+function bossCharge(e, target) {
+  // Lunge up to 3 tiles toward the chosen target, then strike if adjacent.
+  for (let i = 0; i < 3 && distance(e, target) > 1; i++) {
+    if (!stepToward(e, target)) break;
   }
   spawnBurst(e.x, e.y, "#ff5dc1", 8);
   setMessage(`${e.name} charges!`);
   doScreenShake(4);
-  if (distance(e, state.player) === 1) meleePlayer(e, 1.4, `${e.name} crashes into you.`);
+  if (distance(e, target) === 1) meleePlayer(e, 1.4, `${e.name} crashes into you.`, target);
 }
 
 function bossSlamTelegraph(e) {
@@ -312,32 +349,48 @@ function bossSlamTelegraph(e) {
 
 function bossSlamRelease(e) {
   e.protoState.telegraph = null;
-  if (distance(e, state.player) <= 1) {
-    meleePlayer(e, 1.7, `${e.name} SLAMS you!`);
-    doScreenShake(7);
-  } else {
-    setMessage(`${e.name}'s slam misses — your ground splits.`);
-    doScreenShake(3);
+  // Hit any player adjacent to the boss.
+  const targets = [state.player];
+  if (multi.enabled && multi.partner && multi.partner.floor === state.floor) targets.push(multi.partner);
+  let hit = false;
+  for (const t of targets) {
+    if (distance(e, t) <= 1) {
+      meleePlayer(e, 1.7, `${e.name} SLAMS!`, t);
+      hit = true;
+    }
   }
+  if (hit) doScreenShake(7);
+  else { setMessage(`${e.name}'s slam misses — ground splits.`); doScreenShake(3); }
 }
 
-function bossMarkAndSmite(e) {
+function bossMarkAndSmite(e, target) {
   if (!e.protoState.markedThisCombo) {
-    applyStatus(state.player, "mark", 6, 1);
-    spawnBeam(e.x, e.y, state.player.x, state.player.y, "#fca5ff");
-    setMessage(`${e.name} marks you. Something is coming.`);
+    if (isPartner(target)) deliverPlayerHitToGuest(0, e.name, "mark");
+    else applyStatus(state.player, "mark", 6, 1);
+    spawnBeam(e.x, e.y, target.x, target.y, "#fca5ff");
+    setMessage(`${e.name} marks ${isPartner(target) ? (target.name || "your partner") : "you"}. Something is coming.`);
     e.protoState.markedThisCombo = true;
+    e.protoState.smiteTarget = isPartner(target) ? "partner" : "host";
     return;
   }
-  // Second beat — smite
+  // Second beat — smite. Use the same target as the mark.
   e.protoState.markedThisCombo = false;
-  if (hasLineOfSight(e.x, e.y, state.player.x, state.player.y)) {
+  const wantPartner = e.protoState.smiteTarget === "partner";
+  const smiteAt = wantPartner && multi.partner && multi.partner.floor === state.floor
+    ? multi.partner : state.player;
+  e.protoState.smiteTarget = null;
+  if (hasLineOfSight(e.x, e.y, smiteAt.x, smiteAt.y)) {
     const raw = Math.max(4, e.atk + 3);
-    const dmg = playerTakeDamage(raw);
-    spawnBeam(e.x, e.y, state.player.x, state.player.y, "#ff5dc1");
-    spawnBurst(state.player.x, state.player.y, "#ff5dc1", 14);
-    state.lastHitBy = e.name;
-    setMessage(`${e.name} SMITES — ${dmg} damage!`);
+    spawnBeam(e.x, e.y, smiteAt.x, smiteAt.y, "#ff5dc1");
+    spawnBurst(smiteAt.x, smiteAt.y, "#ff5dc1", 14);
+    if (isPartner(smiteAt)) {
+      deliverPlayerHitToGuest(raw, e.name);
+      setMessage(`${e.name} SMITES ${smiteAt.name || "your partner"}!`);
+    } else {
+      const dmg = playerTakeDamage(raw);
+      state.lastHitBy = e.name;
+      setMessage(`${e.name} SMITES — ${dmg} damage!`);
+    }
     doScreenShake(6);
   }
 }
@@ -357,13 +410,15 @@ function pBoss(e) {
     enraged: false,
     telegraph: null,
     cooldowns: { charge: 0, slam: 0, nova: 0, mark: 0 },
-    markedThisCombo: false
+    markedThisCombo: false,
+    smiteTarget: null
   };
   const cd = e.protoState.cooldowns;
   for (const k of Object.keys(cd)) cd[k] = Math.max(0, cd[k] - 1);
 
   const frac = e.hp / e.maxHp;
-  const d = distance(e, state.player);
+  const t = pickTarget(e);
+  const d = distance(e, t);
 
   // Resolve any pending telegraph first.
   if (e.protoState.telegraph === "slam") { bossSlamRelease(e); return; }
@@ -378,7 +433,7 @@ function pBoss(e) {
 
   // Mark + smite combo (any phase, but more in phase 2/3)
   if (frac <= 0.85 && e.protoState.markedThisCombo) {
-    bossMarkAndSmite(e);
+    bossMarkAndSmite(e, t);
     return;
   }
 
@@ -390,14 +445,14 @@ function pBoss(e) {
   } else if (d <= 3) {
     options.push({ kind: "advance", weight: 3 });
     if (cd.slam <= 0) options.push({ kind: "slam", weight: 2 });
-    if (frac <= 0.66 && cd.mark <= 0 && hasLineOfSight(e.x, e.y, state.player.x, state.player.y)) {
+    if (frac <= 0.66 && cd.mark <= 0 && hasLineOfSight(e.x, e.y, t.x, t.y)) {
       options.push({ kind: "mark", weight: 3 });
     }
   } else if (d <= 7) {
     if (cd.charge <= 0) options.push({ kind: "charge", weight: 5 });
     options.push({ kind: "advance", weight: 2 });
     if (frac <= 0.5 && cd.nova <= 0) options.push({ kind: "nova", weight: 4 });
-    if (frac <= 0.66 && cd.mark <= 0 && hasLineOfSight(e.x, e.y, state.player.x, state.player.y)) {
+    if (frac <= 0.66 && cd.mark <= 0 && hasLineOfSight(e.x, e.y, t.x, t.y)) {
       options.push({ kind: "mark", weight: 2 });
     }
   } else {
@@ -421,17 +476,17 @@ function pBoss(e) {
 
   switch (pick.kind) {
     case "melee":
-      meleePlayer(e, frac <= 0.33 ? 1.3 : 1.1);
+      meleePlayer(e, frac <= 0.33 ? 1.3 : 1.1, null, t);
       break;
     case "advance":
-      advanceAndStrike(e, frac <= 0.33 ? 1.3 : 1);
+      advanceAndStrike(e, frac <= 0.33 ? 1.3 : 1, t);
       break;
     case "slam":
       bossSlamTelegraph(e);
       cd.slam = 4;
       break;
     case "charge":
-      bossCharge(e);
+      bossCharge(e, t);
       cd.charge = 5;
       break;
     case "nova":
@@ -439,7 +494,7 @@ function pBoss(e) {
       cd.nova = 5;
       break;
     case "mark":
-      bossMarkAndSmite(e);
+      bossMarkAndSmite(e, t);
       cd.mark = 6;
       break;
   }
