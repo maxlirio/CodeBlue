@@ -206,6 +206,13 @@ function handleMessage(msg) {
       const p = ensurePartner();
       p.floor = Number(msg.floor) | 0;
       appendChat("system", `${p.name} is on floor ${p.floor === 0 ? "Town" : p.floor}.`, false);
+      // If we're the host and the partner just arrived on our floor, they
+      // need a fresh enemy snapshot — our initial broadcast at enterFloor
+      // is long gone if they joined later or were on a different floor.
+      if (multi.role === "host" && p.floor === state.floor && state.floor > 0) {
+        clearEnemySnap();
+        sendEnemyList(state.floor);
+      }
       break;
     }
     case "chat": {

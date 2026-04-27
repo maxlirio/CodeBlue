@@ -361,16 +361,27 @@ export function draw() {
 }
 
 function isPaused() {
+  // Hard pauses — the world is genuinely off in all modes
   if (state.over) return true;
   if (!state.started) return true;
   if (state.awaitingShop) return true;
+  if (ui.cutsceneOverlay && !ui.cutsceneOverlay.classList.contains("hidden")) return true;
+
+  // In multiplayer the host MUST keep ticking the world or the guest's
+  // simulation freezes — the guest only sees what the host broadcasts.
+  // So the host treats local UI overlays (aim, backpack, chest, etc.)
+  // as non-pausing. The guest can still pause locally; their tick
+  // doesn't drive shared state anyway.
+  const isMpHost = multi.enabled && multi.connected && multi.role === "host";
+  if (isMpHost) return false;
+
+  // Solo and guest — original pause behaviour
   if (state.backpackOpen) return true;
   if (state.aimMode) return true;
   if (state.tutorialOpen) return true;
   if (state.chestOpen) return true;
   if (state.discardOpen) return true;
   if (state.applyOpen) return true;
-  if (ui.cutsceneOverlay && !ui.cutsceneOverlay.classList.contains("hidden")) return true;
   if (ui.questCompleteOverlay && !ui.questCompleteOverlay.classList.contains("hidden")) return true;
   return false;
 }
