@@ -72,27 +72,42 @@ function serializeEnemy(e) {
   };
 }
 
-export function sendEnemyList(floor) {
+// Send the enemy list for a specific floor. Caller must pass the floor's
+// enemy array — defaults to the current floor's view (state.enemies).
+export function sendEnemyList(floor, enemies = state.enemies) {
   if (!session.isHostActive()) return;
-  const list = (state.enemies || []).map(serializeEnemy);
+  const list = (enemies || []).map(serializeEnemy);
   netSend({ type: M.ENEMIES, floor, list });
 }
 
-// Per-enemy fingerprint for delta deduplication.
-const enemySnap = new Map();
+// Each floor has its own delta-dedup snapshot so the host can simulate
+// multiple floors without one floor's broadcast cache cross-contaminating
+// the next (e.g., emitting ENEMY_REMOVE for floor-5 enemies when ticking
+// floor 3 because they aren't in the iteration set).
+const enemySnaps = new Map(); // floor -> Map<id, key>
+function snapForFloor(floor) {
+  let m = enemySnaps.get(floor);
+  if (!m) { m = new Map(); enemySnaps.set(floor, m); }
+  return m;
+}
+
 function snapKey(e) {
   return `${e.x},${e.y},${e.hp},${e.dying || 0},${(e.statuses || []).map((s) => `${s.kind}:${s.turns}:${s.power}`).join("|")}`;
 }
 
-export function broadcastEnemyDeltas() {
+// Broadcast deltas for the given floor's enemies. When called with no
+// args, defaults to the current floor (state.floor / state.enemies) —
+// the common case. The host may also call this for the partner's floor
+// after stepping its AI in a swapped context.
+export function broadcastEnemyDeltas(floor = state.floor, enemies = state.enemies) {
   if (!session.isHostActive()) return;
-  const floor = state.floor;
+  const snap = snapForFloor(floor);
   const seen = new Set();
-  for (const e of state.enemies) {
+  for (const e of enemies) {
     seen.add(e.id);
     const key = snapKey(e);
-    if (enemySnap.get(e.id) === key) continue;
-    enemySnap.set(e.id, key);
+    if (snap.get(e.id) === key) continue;
+    snap.set(e.id, key);
     netSend({
       type: M.ENEMY_DELTA,
       floor,
@@ -103,22 +118,28 @@ export function broadcastEnemyDeltas() {
       statuses: (e.statuses || []).map((s) => ({ ...s }))
     });
   }
-  for (const id of [...enemySnap.keys()]) {
+  for (const id of [...snap.keys()]) {
     if (!seen.has(id)) {
-      enemySnap.delete(id);
+      snap.delete(id);
       netSend({ type: M.ENEMY_REMOVE, floor, id });
     }
   }
 }
 
-export function clearEnemySnap() { enemySnap.clear(); }
+// Reset the dedup snapshot for one floor, or all floors if no arg.
+// Called when a fresh ENEMIES list is being pushed so the next delta
+// pass treats every enemy as new.
+export function clearEnemySnap(floor) {
+  if (floor === undefined) enemySnaps.clear();
+  else enemySnaps.delete(floor);
+}
 
-export function sendFloorEffects() {
+export function sendFloorEffects(floor = state.floor, effects = state.floorEffects) {
   if (!session.isHostActive()) return;
   netSend({
     type: M.FLOOR_EFFECTS,
-    floor: state.floor,
-    list: (state.floorEffects || []).map((f) => ({ ...f }))
+    floor,
+    list: (effects || []).map((f) => ({ ...f }))
   });
 }
 
@@ -128,20 +149,22 @@ export function sendSnapshotRequest() {
 }
 
 // ---- guest -> host mutations ----
+// Stamped with the guest's current floor so the host can locate the
+// target enemy in floorCache even when the host is on a different floor.
 
 export function syncRemoteDamage(enemyId, amount, school) {
   if (!session.isGuestActive()) return;
-  netSend({ type: M.REMOTE_DAMAGE, id: enemyId, amount, school });
+  netSend({ type: M.REMOTE_DAMAGE, floor: state.floor, id: enemyId, amount, school });
 }
 
 export function syncRemoteApplyStatus(enemyId, kind, turns, power) {
   if (!session.isGuestActive()) return;
-  netSend({ type: M.REMOTE_APPLY_STATUS, id: enemyId, kind, turns, power });
+  netSend({ type: M.REMOTE_APPLY_STATUS, floor: state.floor, id: enemyId, kind, turns, power });
 }
 
 export function syncRemoteRemoveStatus(enemyId, kind) {
   if (!session.isGuestActive()) return;
-  netSend({ type: M.REMOTE_REMOVE_STATUS, id: enemyId, kind });
+  netSend({ type: M.REMOTE_REMOVE_STATUS, floor: state.floor, id: enemyId, kind });
 }
 
 // ---- host -> guest player damage ----

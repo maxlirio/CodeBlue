@@ -25,6 +25,18 @@ function maybeRequestSnapshot() {
   lastSnapshotReqAt = now;
   sendSnapshotRequest();
 }
+
+// Look up an enemy by id on a specific floor. Used when a guest's
+// remote_* mutation arrives — the host may not be on that floor, so we
+// have to reach into the floorCache rather than the live state.enemies
+// view.
+function findEnemyOnFloor(floor, id) {
+  const f = Number(floor);
+  const ctx = state.floorCache[f];
+  const list = ctx ? ctx.enemies : (f === state.floor ? state.enemies : null);
+  if (!list) return null;
+  return list.find((x) => x.id === id) || null;
+}
 import { appendChat, escapeHtml } from "./chat.js";
 
 // ---- helpers ----
@@ -89,12 +101,15 @@ const HANDLERS = {
     p.floor = Number(msg.floor) | 0;
     p.present = true;
     appendChat("system", `${p.name} is on floor ${p.floor === 0 ? "Town" : p.floor}.`, false);
-    // If we're the host and the partner just arrived on our floor, push a
-    // fresh enemy snapshot — our initial broadcast at enterFloor is gone
-    // if they joined later or were on a different floor.
-    if (session.isHost() && p.floor === state.floor && state.floor > 0) {
-      clearEnemySnap();
-      sendEnemyList(state.floor);
+    // Host: send the partner the authoritative enemy list for the floor
+    // they just landed on. Now that the host simulates every active
+    // floor, ctx exists whether or not we're standing on it ourselves.
+    if (session.isHost() && p.floor > 0) {
+      const ctx = state.floorCache[p.floor];
+      if (ctx) {
+        clearEnemySnap(p.floor);
+        sendEnemyList(p.floor, ctx.enemies);
+      }
     }
   },
 
@@ -104,11 +119,17 @@ const HANDLERS = {
 
   [M.ENEMIES](msg) {
     if (Number(msg.floor) !== state.floor) return;
-    state.enemies = (msg.list || []).map((e) => ({
-      ...e,
-      statuses: (e.statuses || []).map((s) => ({ ...s })),
-      actTimer: 0
-    }));
+    // Replace the contents in place so state.enemies remains the same
+    // array as state.floorCache[currentFloor].enemies. This keeps the
+    // pre-generated cache and the live view consistent.
+    state.enemies.length = 0;
+    for (const e of (msg.list || [])) {
+      state.enemies.push({
+        ...e,
+        statuses: (e.statuses || []).map((s) => ({ ...s })),
+        actTimer: 0
+      });
+    }
   },
 
   [M.ENEMY_DELTA](msg) {
@@ -131,29 +152,30 @@ const HANDLERS = {
 
   [M.ENEMY_REMOVE](msg) {
     if (msg.floor !== undefined && Number(msg.floor) !== state.floor) return;
-    state.enemies = state.enemies.filter((x) => x.id !== msg.id);
+    const idx = state.enemies.findIndex((x) => x.id === msg.id);
+    if (idx >= 0) state.enemies.splice(idx, 1);
   },
 
   [M.FLOOR_EFFECTS](msg) {
     if (!session.isGuest()) return;
     if (msg.floor !== undefined && Number(msg.floor) !== state.floor) return;
-    state.floorEffects = (msg.list || []).map((f) => ({ ...f }));
+    state.floorEffects.length = 0;
+    for (const f of (msg.list || [])) state.floorEffects.push({ ...f });
   },
 
   [M.SNAPSHOT_REQ](msg) {
     if (!session.isHost()) return;
-    // Only resend if we're on the floor the guest is asking about. If we
-    // moved on, our state.enemies is for a different floor and replaying
-    // it would just confuse them; they'll resync when one of us catches up.
     const reqFloor = Number(msg.floor);
-    if (Number.isFinite(reqFloor) && reqFloor !== state.floor) return;
-    clearEnemySnap();
-    sendEnemyList(state.floor);
+    if (!Number.isFinite(reqFloor) || reqFloor <= 0) return;
+    const ctx = state.floorCache[reqFloor];
+    if (!ctx) return;
+    clearEnemySnap(reqFloor);
+    sendEnemyList(reqFloor, ctx.enemies);
   },
 
   [M.REMOTE_DAMAGE](msg) {
     if (!session.isHost()) return;
-    const e = state.enemies.find((x) => x.id === msg.id);
+    const e = findEnemyOnFloor(msg.floor, msg.id);
     if (!e) return;
     e.hp -= Math.max(0, Number(msg.amount) || 0);
     if (e.hp <= 0 && !e.rewardsGranted) {
@@ -164,7 +186,7 @@ const HANDLERS = {
 
   [M.REMOTE_APPLY_STATUS](msg) {
     if (!session.isHost()) return;
-    const e = state.enemies.find((x) => x.id === msg.id);
+    const e = findEnemyOnFloor(msg.floor, msg.id);
     if (!e) return;
     const cur = (e.statuses ||= []).find((s) => s.kind === msg.kind);
     if (cur) {
@@ -177,7 +199,7 @@ const HANDLERS = {
 
   [M.REMOTE_REMOVE_STATUS](msg) {
     if (!session.isHost()) return;
-    const e = state.enemies.find((x) => x.id === msg.id);
+    const e = findEnemyOnFloor(msg.floor, msg.id);
     if (e && e.statuses) e.statuses = e.statuses.filter((s) => s.kind !== msg.kind);
   },
 

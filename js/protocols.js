@@ -505,9 +505,12 @@ const HANDLERS = {
   boss: pBoss
 };
 
-export function tickEnemies(dt) {
-  // Guest: enemy state arrives via host broadcasts; do not tick AI here.
-  if (session.isGuestActive()) return;
+// Run AI for one floor's enemies. Assumes state.* is already pointing at
+// that floor's view (state.enemies / state.map / state.floor / state.floorEffects).
+function tickFloorAI(dt) {
+  // No players on this floor → no AI activity. Saves cycles when the
+  // host is simulating a partner's floor that nobody is on yet.
+  if (!session.players().length) return;
   for (const e of state.enemies) {
     if (e.hp <= 0) continue;
     if (e.protoState) {
@@ -527,11 +530,69 @@ export function tickEnemies(dt) {
     }
   }
   clearDeadEnemies();
-  // Host: push state deltas after every tick so the guest stays synced.
+}
+
+// Run `fn` with state.* swapped to a different floor's view, then
+// restore. Lets host helpers that reach for state.enemies / state.map /
+// state.floor "just work" against another floor's data without every
+// callsite having to thread an explicit context. Returns whatever fn
+// returns (or undefined if the floor isn't cached).
+export function withFloorContext(floor, fn) {
+  const ctx = state.floorCache[floor];
+  if (!ctx) return;
+  const live = {
+    floor: state.floor, map: state.map, rooms: state.rooms,
+    enemies: state.enemies, floorEffects: state.floorEffects,
+    stairs: state.stairs, stairsUp: state.stairsUp,
+    bossAlive: state.bossAlive, chests: state.chests
+  };
+  state.floor = floor;
+  state.map = ctx.map;
+  state.rooms = ctx.rooms;
+  state.enemies = ctx.enemies;
+  state.floorEffects = ctx.floorEffects;
+  state.stairs = ctx.stairs;
+  state.stairsUp = ctx.stairsUp;
+  state.bossAlive = ctx.bossAlive;
+  state.chests = ctx.chests || [];
+  try {
+    return fn(ctx);
+  } finally {
+    ctx.bossAlive = state.bossAlive;
+    state.floor = live.floor;
+    state.map = live.map;
+    state.rooms = live.rooms;
+    state.enemies = live.enemies;
+    state.floorEffects = live.floorEffects;
+    state.stairs = live.stairs;
+    state.stairsUp = live.stairsUp;
+    state.bossAlive = live.bossAlive;
+    state.chests = live.chests;
+  }
+}
+
+export function tickEnemies(dt) {
+  // Guest: enemy state arrives via host broadcasts; do not tick AI here.
+  if (session.isGuestActive()) return;
+
+  // Local floor — always tick.
+  tickFloorAI(dt);
   if (session.isHostActive()) {
     broadcastEnemyDeltas();
-    // Floor effects (burn tiles, mines, traps, walls) churn slowly. Send
-    // a fresh snapshot every tick — list is small and always up to date.
     sendFloorEffects();
+  }
+
+  // Host also runs AI for the partner's floor, so a guest who's on a
+  // different floor still sees a living world. Skipped if the partner
+  // is on the same floor (already covered by the local tick) or in town.
+  if (session.isHostActive()) {
+    const pf = session.partner.floor;
+    if (pf > 0 && pf !== state.floor && session.partner.present) {
+      withFloorContext(pf, () => {
+        tickFloorAI(dt);
+        broadcastEnemyDeltas(pf, state.enemies);
+        sendFloorEffects(pf, state.floorEffects);
+      });
+    }
   }
 }

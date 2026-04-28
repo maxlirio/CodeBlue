@@ -184,11 +184,15 @@ export function cullDyingEnemies() {
   // Guest: never decrement; the host's broadcasts manage dying counters
   // and emit explicit enemy_remove messages when an enemy is gone.
   if (isGuestActive()) return;
-  state.enemies = state.enemies.filter((e) => {
-    if (e.hp > 0) return true;
-    if (e.dying > 0) { e.dying -= 1; return true; }
-    return false;
-  });
+  // Mutate in place so the live state.enemies stays the *same* array as
+  // state.floorCache[currentFloor].enemies — reassigning to a new
+  // filtered array would silently fork them.
+  for (let i = state.enemies.length - 1; i >= 0; i--) {
+    const e = state.enemies[i];
+    if (e.hp > 0) continue;
+    if (e.dying > 0) { e.dying -= 1; continue; }
+    state.enemies.splice(i, 1);
+  }
 }
 
 export function playerAttack(enemy) {
@@ -300,27 +304,37 @@ export function tickStatuses(t) {
   t.statuses = t.statuses.filter((s) => s.turns > 0);
 }
 
+// Tick statuses and floor effects for one floor. By default operates on
+// the live state.* view. Host also calls this with a swapped state so the
+// partner's floor stays alive when the local player isn't there.
 export function tickRealtime() {
-  tickFloorEffects();
-  tickStatuses(state.player);
+  tickFloorEffectsHere();
+  // Player statuses only tick while we're rendering THEIR floor — when
+  // state has been temporarily swapped to the partner's floor for sim,
+  // state.player is the host on a different floor; their burn/regen
+  // shouldn't tick during a remote floor's status pass.
+  if (state.player.floor === state.floor) tickStatuses(state.player);
   for (const e of state.enemies) tickStatuses(e);
   clearDeadEnemies();
 }
 
-export function tickFloorEffects() {
-  // Host owns floor effects; guest just renders the host's snapshot.
+// Renamed: same body as before but the player checks now guard on
+// "is the local player actually on this floor?" Hazards on the partner's
+// floor mustn't accidentally hit the host.
+function tickFloorEffectsHere() {
   if (isGuestActive()) return;
+  const hostHere = state.player.floor === state.floor;
   for (const f of state.floorEffects) {
     if (f.kind === "burn") {
       const e = enemyAt(f.x, f.y);
       if (e) { e.hp -= f.power; applyStatus(e, "burn", 2, f.power); spawnBurst(f.x, f.y, STATUS_DEFS.burn.color, 2); }
-      if (state.player.x === f.x && state.player.y === f.y) {
+      if (hostHere && state.player.x === f.x && state.player.y === f.y) {
         playerTakeDamage(f.power); spawnBurst(f.x, f.y, STATUS_DEFS.burn.color, 2);
       }
     }
     if (f.kind === "mine") {
       const e = enemyAt(f.x, f.y);
-      const onMine = e || (state.player.x === f.x && state.player.y === f.y);
+      const onMine = e || (hostHere && state.player.x === f.x && state.player.y === f.y);
       if (onMine) triggerMine(f);
     }
     if (f.kind === "trap") {
@@ -329,8 +343,14 @@ export function tickFloorEffects() {
     }
     f.turns -= 1;
   }
-  state.floorEffects = state.floorEffects.filter((f) => f.turns > 0);
+  // In-place filter so state.floorEffects stays the same array as
+  // state.floorCache[state.floor].floorEffects.
+  for (let i = state.floorEffects.length - 1; i >= 0; i--) {
+    if (state.floorEffects[i].turns <= 0) state.floorEffects.splice(i, 1);
+  }
 }
+
+export function tickFloorEffects() { tickFloorEffectsHere(); }
 
 export function triggerTrap(f, enemy) {
   const pow = state.player.spellPower + Math.floor(state.floor / 4);

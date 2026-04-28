@@ -78,20 +78,32 @@ export const session = {
         && this.partner.y === y;
   },
 
-  // The list of friendly avatars on this floor. Enemy AI iterates this
-  // instead of hard-coding [state.player, partner] with conditional
-  // checks. In solo, returns just the local player.
-  players() {
-    const out = [state.player];
-    const p = this.alivePartner();
-    if (p) out.push(p);
+  // The list of friendly avatars on a given floor. The AI handlers and
+  // collision checks call this with the floor they're simulating, which
+  // is `state.floor` during a normal tick but may be a different floor
+  // when the host is simulating its partner's floor too. We filter by
+  // each avatar's tracked .floor so a swapped state.floor never causes
+  // the wrong target to be picked up.
+  playersOnFloor(floor) {
+    const out = [];
+    if (state.player.floor === floor) out.push(state.player);
+    if (this.isMultiplayer() && this.partner.present && this.partner.alive
+        && this.partner.floor === floor) {
+      out.push(this.partner);
+    }
     return out;
   },
 
-  // Pick the closest player to a given position. Replaces pickTarget()
-  // in protocols.js — no more inline `multi.partner ?` checks.
+  // Convenience for the common case ("avatars on the floor we're
+  // currently simulating"). Equivalent to playersOnFloor(state.floor).
+  players() { return this.playersOnFloor(state.floor); },
+
+  // Pick the closest player on the floor we're currently simulating
+  // (state.floor). Returns null if nobody is on this floor — host should
+  // skip the AI tick entirely in that case.
   closestPlayer(from) {
     const ps = this.players();
+    if (!ps.length) return null;
     let best = ps[0];
     let bestDist = Infinity;
     for (const p of ps) {

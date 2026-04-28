@@ -105,6 +105,7 @@ export const state = {
     weapon: "",
     x: 2,
     y: 2,
+    floor: 0,
     hp: 30,
     maxHp: 30,
     mana: 12,

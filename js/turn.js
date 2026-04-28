@@ -7,6 +7,7 @@ import { rankOf } from "./spells/index.js";
 import { equipWeapon, recalcAttack, generateAiLoot } from "./items.js";
 import { openSpellDiscard } from "./discard.js";
 import { buildFloor, buildTown, buildShopInterior, shopAt, dungeonEntranceAt } from "./map.js";
+import { setSeed } from "./rng.js";
 import { SHOP_VENDORS } from "./config.js";
 import { openShop } from "./shop.js";
 import { SCHOOL_COLORS } from "./config.js";
@@ -128,6 +129,10 @@ function openChest(chest) {
   state.chestOpen = true;
 }
 
+// Capture current floor data into the persistent cache. Each floor is its
+// own self-contained snapshot — independent map, enemies, chests, etc.
+// The cache is the single source of truth for floor state; state.* fields
+// are just a "view" of whichever floor is currently being shown.
 function snapshotFloor() {
   state.floorCache[state.floor] = {
     map: state.map,
@@ -163,8 +168,59 @@ function restoreFloor(floor) {
   state.chests = c.chests || [];
 }
 
+// Build all dungeon floors up front so each player has a complete,
+// deterministic world from the moment the run starts. Identical seed +
+// per-floor sub-seed means host and guest generate the same maps,
+// enemy positions, and chest layouts. After this runs, no floor will
+// ever need to be lazily built again — entering a floor is a pure
+// cache restore.
+export function generateAllFloors() {
+  const baseSeed = state.seed || "noseed";
+  // Save the live state so we can restore it after the loop.
+  const live = {
+    floor: state.floor, map: state.map, rooms: state.rooms,
+    enemies: state.enemies, stairs: state.stairs, stairsUp: state.stairsUp,
+    floorEffects: state.floorEffects, bossAlive: state.bossAlive,
+    interactables: state.interactables, buildings: state.buildings,
+    trees: state.trees, paths: state.paths, fountains: state.fountains,
+    chests: state.chests
+  };
+
+  for (let f = 1; f <= maxFloor; f++) {
+    if (state.floorCache[f]) continue;
+    setSeed(`${baseSeed}:floor:${f}`);
+    state.floor = f;
+    buildFloor();
+    snapshotFloor();
+  }
+
+  // Restore live state and seed.
+  state.floor = live.floor;
+  state.map = live.map;
+  state.rooms = live.rooms;
+  state.enemies = live.enemies;
+  state.stairs = live.stairs;
+  state.stairsUp = live.stairsUp;
+  state.floorEffects = live.floorEffects;
+  state.bossAlive = live.bossAlive;
+  state.interactables = live.interactables;
+  state.buildings = live.buildings;
+  state.trees = live.trees;
+  state.paths = live.paths;
+  state.fountains = live.fountains;
+  state.chests = live.chests;
+  setSeed(baseSeed);
+}
+
 function enterFloor(floor, { fromAbove }) {
+  // Snapshot the floor we're leaving so any in-progress changes
+  // (positions, hp, statuses) persist when we come back.
+  if (state.started && state.floor !== floor && state.floorCache[state.floor]) {
+    snapshotFloor();
+  }
+
   state.floor = floor;
+  state.player.floor = floor;
   if (state.floorCache[floor]) {
     restoreFloor(floor);
   } else if (floor === 0) {
@@ -173,7 +229,10 @@ function enterFloor(floor, { fromAbove }) {
     sendPosition();
     return;
   } else {
+    // Should never happen now that all floors are pre-generated, but
+    // keep the fallback so a missing seed doesn't hard-crash the run.
     buildFloor();
+    snapshotFloor();
   }
   if (floor === 0) {
     const entry = state.interactables.find((i) => i.kind === "dungeon");
@@ -185,15 +244,15 @@ function enterFloor(floor, { fromAbove }) {
     state.player.x = state.stairs.x;
     state.player.y = state.stairs.y;
   }
-  // Multiplayer: host is the authoritative source for enemy + floor
-  // effects state. Host pushes a fresh snapshot; guest never trusts its
-  // own (potentially stale) cache and asks the host to resend.
+  // Multiplayer: host owns the authoritative simulation for whichever
+  // floor each player is on. Push a fresh snapshot of THIS floor so the
+  // partner (if joining us here) gets up-to-date enemy positions. Guest
+  // requests a snapshot in case the host is here too; if not, our
+  // pre-generated cache is already valid.
   if (session.isHostActive()) {
-    clearEnemySnap();
+    clearEnemySnap(floor);
     sendEnemyList(floor);
   } else if (session.isGuestActive()) {
-    state.enemies = [];
-    state.floorEffects = [];
     sendSnapshotRequest();
   }
   sendFloor(floor);
@@ -508,6 +567,13 @@ export function chooseClass(c, opts = {}) {
   ];
   recalcAttack();
   state.started = true;
+  state.player.floor = 0;
+  // Pre-generate every dungeon floor up front. Both players use the same
+  // base seed plus a deterministic per-floor sub-seed, so host and guest
+  // produce identical maps, enemy positions, and chest contents. From
+  // here, entering a floor is a pure cache restore — no surprises from
+  // lazy generation in the middle of a run.
+  generateAllFloors();
   ui.classOverlay.classList.add("hidden");
   sendHello();
   setMessage("A figure waits at his desk before you reach town…");

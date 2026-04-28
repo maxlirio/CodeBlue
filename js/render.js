@@ -47,7 +47,7 @@ const TOWN_PROP_SPRITES = {
 };
 import { updateUi } from "./ui.js";
 import { renderSpellAim, renderAllSpellFx } from "./spells/index.js";
-import { tickEnemies } from "./protocols.js";
+import { tickEnemies, withFloorContext } from "./protocols.js";
 import { tickRealtime, cullDyingEnemies } from "./combat.js";
 import { endRun } from "./turn.js";
 import { session } from "./net/session.js";
@@ -370,6 +370,15 @@ function tickWorld(dt) {
     while (statusAccum >= STATUS_TICK_MS) {
       statusAccum -= STATUS_TICK_MS;
       tickRealtime();
+      // Host also drives status / floor-effect ticks for the partner's
+      // floor when they're alone there. Without this, burn DOTs and
+      // hazard tiles freeze on any floor the host isn't standing on.
+      if (session.isHostActive()
+          && session.partner.present
+          && session.partner.floor > 0
+          && session.partner.floor !== state.floor) {
+        withFloorContext(session.partner.floor, () => tickRealtime());
+      }
       if (state.player.hp <= 0) {
         state.player.hp = 0;
         endRun("Lingering effects overwhelm you.");
@@ -379,6 +388,12 @@ function tickWorld(dt) {
 
     tickEnemies(dt);
     cullDyingEnemies();
+    if (session.isHostActive()
+        && session.partner.present
+        && session.partner.floor > 0
+        && session.partner.floor !== state.floor) {
+      withFloorContext(session.partner.floor, () => cullDyingEnemies());
+    }
   }
 
   if (state.player.hp <= 0) {
