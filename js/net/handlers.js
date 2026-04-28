@@ -313,9 +313,18 @@ const HANDLERS = {
     import("../quests.js").then(({ recordDescend }) => recordDescend(Number(msg.floor) || 0));
   },
 
-  [M.FX_BURST](msg) { fxBurst(msg.x, msg.y, msg.color, msg.count); },
-  [M.FX_BEAM](msg)  { fxBeam(msg.x1, msg.y1, msg.x2, msg.y2, msg.color); },
-  [M.FX_SHAKE](msg) { fxShake(msg.amt); },
+  [M.FX_BURST](msg) {
+    if (msg.floor !== undefined && Number(msg.floor) !== state.floor) return;
+    fxBurst(msg.x, msg.y, msg.color, msg.count);
+  },
+  [M.FX_BEAM](msg) {
+    if (msg.floor !== undefined && Number(msg.floor) !== state.floor) return;
+    fxBeam(msg.x1, msg.y1, msg.x2, msg.y2, msg.color);
+  },
+  [M.FX_SHAKE](msg) {
+    if (msg.floor !== undefined && Number(msg.floor) !== state.floor) return;
+    fxShake(msg.amt);
+  },
 
   [M.PING](msg) { sendPong(msg.t); },
   [M.PONG](msg) {

@@ -10,42 +10,53 @@ import {
 const isHostActive = () => session.isHostActive();
 const isGuestActive = () => session.isGuestActive();
 
+// True only when the floor we're simulating is also the local player's
+// floor. When the host runs withFloorContext for the partner's floor,
+// state.floor has been swapped — we still want the broadcast to go out
+// (so the partner sees the effect) but no local UI side-effects on the
+// host's view, which is showing a totally different floor.
+function localFloor() { return state.player.floor === state.floor; }
+
 export function spawnBurst(x, y, color, count = 10, opts = {}) {
-  for (let i = 0; i < count; i++) {
-    state.particles.push({
-      x: x * tileSize + tileSize / 2,
-      y: y * tileSize + tileSize / 2,
-      vx: (Math.random() - 0.5) * 2.6,
-      vy: (Math.random() - 0.5) * 2.6,
-      life: rnd(14, 22),
-      color
-    });
+  if (localFloor()) {
+    for (let i = 0; i < count; i++) {
+      state.particles.push({
+        x: x * tileSize + tileSize / 2,
+        y: y * tileSize + tileSize / 2,
+        vx: (Math.random() - 0.5) * 2.6,
+        vy: (Math.random() - 0.5) * 2.6,
+        life: rnd(14, 22),
+        color
+      });
+    }
   }
   if (!opts.noBroadcast && isHostActive()) broadcastFxBurst(x, y, color, count);
 }
 
 export function spawnBeam(x1, y1, x2, y2, color, opts = {}) {
-  const sx = x1 * tileSize + tileSize / 2;
-  const sy = y1 * tileSize + tileSize / 2;
-  const ex = x2 * tileSize + tileSize / 2;
-  const ey = y2 * tileSize + tileSize / 2;
-  const steps = 10;
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    state.particles.push({
-      x: sx + (ex - sx) * t,
-      y: sy + (ey - sy) * t,
-      vx: (Math.random() - 0.5) * 0.8,
-      vy: (Math.random() - 0.5) * 0.8,
-      life: rnd(6, 12),
-      color
-    });
+  if (localFloor()) {
+    const sx = x1 * tileSize + tileSize / 2;
+    const sy = y1 * tileSize + tileSize / 2;
+    const ex = x2 * tileSize + tileSize / 2;
+    const ey = y2 * tileSize + tileSize / 2;
+    const steps = 10;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      state.particles.push({
+        x: sx + (ex - sx) * t,
+        y: sy + (ey - sy) * t,
+        vx: (Math.random() - 0.5) * 0.8,
+        vy: (Math.random() - 0.5) * 0.8,
+        life: rnd(6, 12),
+        color
+      });
+    }
   }
   if (!opts.noBroadcast && isHostActive()) broadcastFxBeam(x1, y1, x2, y2, color);
 }
 
 export function doScreenShake(n) {
-  state.screenShake = Math.max(state.screenShake || 0, n);
+  if (localFloor()) state.screenShake = Math.max(state.screenShake || 0, n);
   if (isHostActive()) broadcastFxShake(n);
 }
 

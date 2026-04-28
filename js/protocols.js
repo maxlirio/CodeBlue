@@ -286,13 +286,20 @@ function pShaman(e) {
 
 function spawnBossAdd(e) {
   const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1],[1,-1],[-1,1]];
+  const friends = session.players();
   for (const [dx, dy] of dirs) {
     const nx = e.x + dx;
     const ny = e.y + dy;
     if (!inBounds(nx, ny) || state.map[ny][nx] === 1) continue;
     if (enemyAt(nx, ny)) continue;
-    if (state.player.x === nx && state.player.y === ny) continue;
+    // Don't spawn on top of any friendly avatar on this floor (host AND
+    // partner — the previous check only handled the local player).
+    if (friends.some((p) => p.x === nx && p.y === ny)) continue;
     state.enemies.push({
+      // ID is required: broadcastEnemyDeltas keys its dedup snap by id,
+      // and the guest's enemy_delta handler looks up by id. Without
+      // this, every slimeling collapses into the same undefined slot.
+      id: state.nextEnemyId++,
       x: nx, y: ny, type: "slime", name: "slimeling",
       hp: 6, maxHp: 6, atk: 2, baseAtk: 2, vision: 7,
       statuses: [], weak: ["fire"], resist: ["frost"], boss: false,

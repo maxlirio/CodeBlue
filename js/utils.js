@@ -29,6 +29,15 @@ export function lineTiles(x1, y1, x2, y2) {
   return tiles;
 }
 
-export function setMessage(msg) { state.message = msg; ui.log.textContent = msg; }
+export function setMessage(msg) {
+  // When the host is simulating a remote floor (state.floor swapped to
+  // partner's floor via withFloorContext), suppress UI updates — the
+  // host's screen shouldn't be cluttered with messages about events on
+  // a floor they aren't on. Partner gets their own messages via the
+  // network handlers (PLAYER_HIT etc).
+  if (state.player.floor !== state.floor) return;
+  state.message = msg;
+  ui.log.textContent = msg;
+}
 
 export function levelManaPool(level) { return 10 + Math.floor(level * 1.5); }

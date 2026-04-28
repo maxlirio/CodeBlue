@@ -159,24 +159,37 @@ export function playerTakeDamage(amount) {
 }
 
 export function clearDeadEnemies() {
+  // Only credit rewards to the local player when their kill was on this
+  // floor. When the host is simulating the partner's floor (state.floor
+  // swapped via withFloorContext), state.player.floor differs from
+  // state.floor — those kills belong to the partner and the host
+  // shouldn't pocket the gold or quest progress.
+  const localKill = state.player.floor === state.floor;
   let killedBoss = false;
   for (const enemy of state.enemies) {
     if (enemy.hp > 0 || enemy.rewardsGranted) continue;
     enemy.rewardsGranted = true;
     enemy.dying = 18;
-    if (enemy.boss) { killedBoss = true; state.stats.bossKills += 1; }
+    if (enemy.boss) killedBoss = true;
+    spawnBurst(enemy.x, enemy.y, enemy.boss ? "#ff5dc1" : "#ffd166", 12);
+    if (!localKill) continue;
+    if (enemy.boss) state.stats.bossKills += 1;
     state.stats.kills += 1;
     recordEnemyKill(enemy.type, state.floor);
     sendQuestKill(enemy.type, state.floor);
     const gold = enemy.boss ? rnd(18, 30) : rnd(2, 7);
     state.player.gold += gold;
     state.stats.goldEarned += gold;
-    spawnBurst(enemy.x, enemy.y, enemy.boss ? "#ff5dc1" : "#ffd166", 12);
   }
   if (killedBoss) {
+    // Boss death always flips bossAlive (so the partner's floor cache
+    // also records that the boss is gone), but only the killer gets the
+    // spell-points reward and the headline message.
     state.bossAlive = false;
-    state.player.spellPoints += 2;
-    setMessage("The boss falls. +2 Spell Points. Return to town or press on.");
+    if (localKill) {
+      state.player.spellPoints += 2;
+      setMessage("The boss falls. +2 Spell Points. Return to town or press on.");
+    }
   }
 }
 

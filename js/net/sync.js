@@ -175,20 +175,23 @@ export function deliverPlayerHitToGuest(dmg, byName, status) {
 }
 
 // ---- visual fx ----
+// Stamped with the floor the effect happened on so a guest who's on a
+// different floor than the host can drop irrelevant fx instead of
+// rendering stray particles at wrong coordinates.
 
 export function broadcastFxBurst(x, y, color, count) {
   if (!session.isHostActive()) return;
-  netSend({ type: M.FX_BURST, x, y, color, count });
+  netSend({ type: M.FX_BURST, floor: state.floor, x, y, color, count });
 }
 
 export function broadcastFxBeam(x1, y1, x2, y2, color) {
   if (!session.isHostActive()) return;
-  netSend({ type: M.FX_BEAM, x1, y1, x2, y2, color });
+  netSend({ type: M.FX_BEAM, floor: state.floor, x1, y1, x2, y2, color });
 }
 
 export function broadcastFxShake(amt) {
   if (!session.isHostActive()) return;
-  netSend({ type: M.FX_SHAKE, amt });
+  netSend({ type: M.FX_SHAKE, floor: state.floor, amt });
 }
 
 // ---- gifting / shop / quests / partner support / pvp ----
