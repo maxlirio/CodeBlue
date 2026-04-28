@@ -189,28 +189,34 @@ function pWraith(e) {
   }
 }
 
-// Spider — bursts in, bites and applies poison, then strafes.
+// Spider — closes the gap, bites; only the *opening* bite injects venom
+// so the DOT can't be infinitely refreshed. Strafes after biting.
 function pSpider(e) {
-  e.protoState ??= { lunged: 0 };
+  e.protoState ??= { venomCd: 0 };
   const t = pickTarget(e);
   const d = distance(e, t);
+
+  const tryVenom = () => {
+    if (e.protoState.venomCd > 0) return false;
+    if (isPartner(t)) deliverPlayerHitToGuest(0, e.name, "burn");
+    else applyStatus(state.player, "burn", 3, 1);
+    e.protoState.venomCd = 3000;
+    spawnBurst(t.x, t.y, "#5b3a8e", 6);
+    return true;
+  };
+
   if (d === 1) {
     meleePlayer(e, 1, null, t);
-    if (isPartner(t)) deliverPlayerHitToGuest(0, e.name, "burn");
-    else applyStatus(state.player, "burn", 4, 2);
-    setMessage(`${e.name} bites${isPartner(t) ? ` ${t.name || "your partner"}` : " you"} — venom.`);
-    spawnBurst(t.x, t.y, "#5b3a8e", 6);
+    const venomed = tryVenom();
+    setMessage(`${e.name} bites${isPartner(t) ? ` ${t.name || "your partner"}` : " you"}${venomed ? " — venom." : "."}`);
     if (Math.random() < 0.6) stepAway(e, t);
     return;
   }
   if (d <= e.vision) {
     stepToward(e, t);
-    if (distance(e, t) > 1) stepToward(e, t);
     if (distance(e, t) === 1) {
       meleePlayer(e, 1, null, t);
-      if (isPartner(t)) deliverPlayerHitToGuest(0, e.name, "burn");
-      else applyStatus(state.player, "burn", 4, 2);
-      spawnBurst(t.x, t.y, "#5b3a8e", 6);
+      tryVenom();
     }
   }
 }

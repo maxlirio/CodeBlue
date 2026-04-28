@@ -101,8 +101,8 @@ export const ENEMY_TYPES = [
     protocol: "wraith",   actInterval: 540,
     sprite: [["#9bc4ff", 8, 5, 8, 12], ["#e8f2ff", 10, 3, 4, 3]] },
   // New enemies — added with fresh behavior protocols
-  { id: "spider",   hp: 9,  atk: 4, vision: 12, weak: ["fire"],               resist: [],
-    protocol: "spider",   actInterval: 320,
+  { id: "spider",   hp: 9,  atk: 4, vision: 10, weak: ["fire"],               resist: [],
+    protocol: "spider",   actInterval: 780,
     sprite: [
       ["#2a1a3a", 8, 9, 8, 6],     // body
       ["#5b3a8e", 10, 7, 4, 4],    // head
