@@ -205,6 +205,15 @@ const HANDLERS = {
     setTimeout(() => banner.remove(), 4000);
   },
 
+  [M.PLAYER_DIED](msg) {
+    if (state.over) return;
+    const partnerName = session.partner.name || "Partner";
+    const cause = String(msg.cause || "fallen");
+    import("../turn.js").then(({ endRun }) => {
+      endRun(`${partnerName} fell — ${cause}`);
+    });
+  },
+
   [M.GIFT_ITEM](msg) {
     const inv = state.player.inventory;
     const partnerName = session.partner.name || "Partner";

@@ -196,6 +196,11 @@ export function sendPvpKill(victim, killer) {
   netSend({ type: M.PVP_KILL, victim, killer });
 }
 
+export function sendPlayerDied(cause) {
+  if (!session.isMultiplayer()) return;
+  netSend({ type: M.PLAYER_DIED, cause: String(cause || "fallen") });
+}
+
 export function sendQuestKill(enemyType, floor) {
   if (!session.isMultiplayer() || !session.isCoop()) return;
   netSend({ type: M.QUEST_KILL, enemyType, floor });

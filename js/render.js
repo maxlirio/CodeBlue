@@ -359,22 +359,27 @@ const STATUS_TICK_MS = 500;
 let statusAccum = 0;
 
 function tickWorld(dt) {
-  if (state.player.hp <= 0) return;
+  // No early-return on hp<=0 here: in MP, damage can land via a network
+  // handler (PLAYER_HIT, PVP_HIT) between ticks. The death check at the
+  // bottom of this function is what flips state.over and shows the
+  // result overlay — skipping past it leaves the player frozen at 0 HP.
   if (state.player.moveTimer > 0) state.player.moveTimer = Math.max(0, state.player.moveTimer - dt);
 
-  statusAccum += dt;
-  while (statusAccum >= STATUS_TICK_MS) {
-    statusAccum -= STATUS_TICK_MS;
-    tickRealtime();
-    if (state.player.hp <= 0) {
-      state.player.hp = 0;
-      endRun("Lingering effects overwhelm you.");
-      return;
+  if (state.player.hp > 0) {
+    statusAccum += dt;
+    while (statusAccum >= STATUS_TICK_MS) {
+      statusAccum -= STATUS_TICK_MS;
+      tickRealtime();
+      if (state.player.hp <= 0) {
+        state.player.hp = 0;
+        endRun("Lingering effects overwhelm you.");
+        return;
+      }
     }
-  }
 
-  tickEnemies(dt);
-  cullDyingEnemies();
+    tickEnemies(dt);
+    cullDyingEnemies();
+  }
 
   if (state.player.hp <= 0) {
     state.player.hp = 0;

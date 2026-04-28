@@ -17,16 +17,20 @@ import {
   sendPosition, sendFloor, sendHello,
   sendEnemyList, clearEnemySnap,
   sendShopVisit, sendQuestPickup, sendQuestDescend,
-  sendPvpHit
+  sendPvpHit, sendPlayerDied
 } from "./net/sync.js";
 
 const PLAYER_MOVE_COOLDOWN_MS = 110;
 
 export function endRun(cause) {
+  if (state.over) return;
   state.over = true;
   state.lastKilledBy = cause;
   state.stats.floorLog[state.floor - 1] = "died";
   setMessage(cause);
+  // Notify partner so their world doesn't quietly freeze when the only
+  // simulator (host) drops out, or they keep playing past the death.
+  sendPlayerDied(cause);
   showResult();
 }
 

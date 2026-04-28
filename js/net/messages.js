@@ -31,6 +31,7 @@ export const M = Object.freeze({
   PARTNER_SUPPORT:  "partner_support", // either side: heal / buff partner
   PVP_HIT:          "pvp_hit",         // either side in PvP
   PVP_KILL:         "pvp_kill",        // banner
+  PLAYER_DIED:      "player_died",     // local player has fallen — partner ends run
 
   // ---- visual fx ----
   FX_BURST: "fx_burst",
