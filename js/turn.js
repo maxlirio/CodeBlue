@@ -15,7 +15,7 @@ import { showCutscene, recordDescend, recordItemPickup } from "./quests.js";
 import { session } from "./net/session.js";
 import {
   sendPosition, sendFloor, sendHello,
-  sendEnemyList, clearEnemySnap,
+  sendEnemyList, clearEnemySnap, sendSnapshotRequest,
   sendShopVisit, sendQuestPickup, sendQuestDescend,
   sendPvpHit, sendPlayerDied
 } from "./net/sync.js";
@@ -185,12 +185,16 @@ function enterFloor(floor, { fromAbove }) {
     state.player.x = state.stairs.x;
     state.player.y = state.stairs.y;
   }
-  // Multiplayer: host broadcasts the authoritative enemy + chest list
-  // for this floor. Reset the delta snapshot so subsequent ticks emit
-  // a fresh stream.
+  // Multiplayer: host is the authoritative source for enemy + floor
+  // effects state. Host pushes a fresh snapshot; guest never trusts its
+  // own (potentially stale) cache and asks the host to resend.
   if (session.isHostActive()) {
     clearEnemySnap();
     sendEnemyList(floor);
+  } else if (session.isGuestActive()) {
+    state.enemies = [];
+    state.floorEffects = [];
+    sendSnapshotRequest();
   }
   sendFloor(floor);
   sendPosition();

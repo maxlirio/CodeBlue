@@ -12,8 +12,19 @@ import { setSeed } from "../rng.js";
 import { session } from "./session.js";
 import { M, isKnownType } from "./messages.js";
 import {
-  sendEnemyList, clearEnemySnap, sendPong, sendPvpKill, updatePartnerCard
+  sendEnemyList, clearEnemySnap, sendPong, sendPvpKill,
+  sendSnapshotRequest, updatePartnerCard
 } from "./sync.js";
+
+// Rate-limit guest's auto-resync so it can't flood the host even if every
+// delta in a tick misses. One request per ~600ms is plenty.
+let lastSnapshotReqAt = 0;
+function maybeRequestSnapshot() {
+  const now = performance.now();
+  if (now - lastSnapshotReqAt < 600) return;
+  lastSnapshotReqAt = now;
+  sendSnapshotRequest();
+}
 import { appendChat, escapeHtml } from "./chat.js";
 
 // ---- helpers ----
@@ -101,8 +112,16 @@ const HANDLERS = {
   },
 
   [M.ENEMY_DELTA](msg) {
+    // Drop deltas for floors we aren't on — they were broadcast for the
+    // host's current floor, which may not be ours.
+    if (msg.floor !== undefined && Number(msg.floor) !== state.floor) return;
     const e = state.enemies.find((x) => x.id === msg.id);
-    if (!e) return;
+    if (!e) {
+      // Delta for an enemy we don't know about, but for our floor — we
+      // missed the snapshot. Ask the host to resend.
+      if (session.isGuestActive()) maybeRequestSnapshot();
+      return;
+    }
     if (msg.x !== undefined)     e.x = msg.x;
     if (msg.y !== undefined)     e.y = msg.y;
     if (msg.hp !== undefined)    e.hp = msg.hp;
@@ -111,16 +130,23 @@ const HANDLERS = {
   },
 
   [M.ENEMY_REMOVE](msg) {
+    if (msg.floor !== undefined && Number(msg.floor) !== state.floor) return;
     state.enemies = state.enemies.filter((x) => x.id !== msg.id);
   },
 
   [M.FLOOR_EFFECTS](msg) {
     if (!session.isGuest()) return;
+    if (msg.floor !== undefined && Number(msg.floor) !== state.floor) return;
     state.floorEffects = (msg.list || []).map((f) => ({ ...f }));
   },
 
-  [M.SNAPSHOT_REQ](_msg) {
+  [M.SNAPSHOT_REQ](msg) {
     if (!session.isHost()) return;
+    // Only resend if we're on the floor the guest is asking about. If we
+    // moved on, our state.enemies is for a different floor and replaying
+    // it would just confuse them; they'll resync when one of us catches up.
+    const reqFloor = Number(msg.floor);
+    if (Number.isFinite(reqFloor) && reqFloor !== state.floor) return;
     clearEnemySnap();
     sendEnemyList(state.floor);
   },

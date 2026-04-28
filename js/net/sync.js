@@ -86,6 +86,7 @@ function snapKey(e) {
 
 export function broadcastEnemyDeltas() {
   if (!session.isHostActive()) return;
+  const floor = state.floor;
   const seen = new Set();
   for (const e of state.enemies) {
     seen.add(e.id);
@@ -94,6 +95,7 @@ export function broadcastEnemyDeltas() {
     enemySnap.set(e.id, key);
     netSend({
       type: M.ENEMY_DELTA,
+      floor,
       id: e.id,
       x: e.x, y: e.y,
       hp: e.hp,
@@ -104,7 +106,7 @@ export function broadcastEnemyDeltas() {
   for (const id of [...enemySnap.keys()]) {
     if (!seen.has(id)) {
       enemySnap.delete(id);
-      netSend({ type: M.ENEMY_REMOVE, id });
+      netSend({ type: M.ENEMY_REMOVE, floor, id });
     }
   }
 }
@@ -115,8 +117,14 @@ export function sendFloorEffects() {
   if (!session.isHostActive()) return;
   netSend({
     type: M.FLOOR_EFFECTS,
+    floor: state.floor,
     list: (state.floorEffects || []).map((f) => ({ ...f }))
   });
+}
+
+export function sendSnapshotRequest() {
+  if (!session.isGuestActive()) return;
+  netSend({ type: M.SNAPSHOT_REQ, floor: state.floor });
 }
 
 // ---- guest -> host mutations ----
