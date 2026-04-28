@@ -43,17 +43,19 @@ function placeEnemy(occupied, isBoss) {
     occupied.add(k);
     const scale = 1 + Math.floor(state.floor / 4);
     const protocol = isBoss ? "boss" : type.protocol;
-    const actInterval = isBoss ? 660 : type.actInterval;
+    const actInterval = isBoss ? 700 : type.actInterval;
+    const hp    = isBoss ? 40 + state.floor * 4         : type.hp + scale * 2;
+    const atk   = isBoss ? 9  + Math.floor(state.floor / 3) : type.atk + Math.ceil(scale * 0.9);
     state.enemies.push({
       id: state.nextEnemyId++,
       x: pos.x,
       y: pos.y,
       type: isBoss ? "boss" : type.id,
       name: isBoss ? makeBossName() : type.id,
-      hp: isBoss ? 48 + state.floor * 5 : type.hp + scale * 3,
-      maxHp: isBoss ? 48 + state.floor * 5 : type.hp + scale * 3,
-      atk: isBoss ? 10 + Math.floor(state.floor / 2) : type.atk + Math.ceil(scale * 1.3),
-      baseAtk: isBoss ? 10 + Math.floor(state.floor / 2) : type.atk + Math.ceil(scale * 1.3),
+      hp,
+      maxHp: hp,
+      atk,
+      baseAtk: atk,
       vision: isBoss ? 12 : type.vision,
       statuses: [],
       weak: isBoss ? [] : (type.weak || []),
