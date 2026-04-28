@@ -61,8 +61,7 @@ function placeEnemy(occupied, isBoss) {
       boss: isBoss,
       protocol,
       actInterval,
-      actTimer: actInterval + Math.random() * 400,
-      protoState: {}
+      actTimer: actInterval + Math.random() * 400
     });
     break;
   }

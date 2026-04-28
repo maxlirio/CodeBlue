@@ -96,7 +96,6 @@ const HANDLERS = {
     state.enemies = (msg.list || []).map((e) => ({
       ...e,
       statuses: (e.statuses || []).map((s) => ({ ...s })),
-      protoState: {},
       actTimer: 0
     }));
   },

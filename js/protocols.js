@@ -290,7 +290,7 @@ function spawnBossAdd(e) {
       x: nx, y: ny, type: "slime", name: "slimeling",
       hp: 6, maxHp: 6, atk: 2, baseAtk: 2, vision: 7,
       statuses: [], weak: ["fire"], resist: ["frost"], boss: false,
-      protocol: "slime", actInterval: 850, actTimer: 400, protoState: {}
+      protocol: "slime", actInterval: 850, actTimer: 400
     });
     spawnBurst(nx, ny, "#4bc35f", 10);
     setMessage(`${e.name} summons a slimeling!`);
