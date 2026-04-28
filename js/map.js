@@ -5,8 +5,9 @@ import { srnd as rnd, spick as pick, srand, setSeed } from "./rng.js";
 import { makeRelic } from "./items.js";
 import { makeMagicScroll } from "./augments.js";
 import { isFindQuestForFloor, consumePlantedFindQuestItem } from "./quests.js";
-import { session } from "./net/session.js";
-const isGuestActive = () => session.isGuestActive();
+// Both host and guest now place enemies during pre-generation so the
+// guest never sees an empty floor. Identical seeds + identical
+// nextEnemyId increments produce matching enemies on both sides.
 import { SPELL_LIBRARY, rankOf, isSpellForPlayer } from "./spells/index.js";
 import { makeBossName } from "./boss.js";
 
@@ -110,20 +111,19 @@ export function buildFloor() {
   state.chests = [];
   const occupied = new Set([key(state.player.x, state.player.y), key(state.stairs.x, state.stairs.y)]);
 
-  // Enemies are still host-authoritative (guest mirrors via broadcast),
-  // so guests skip enemy placement. Chests are now per-player — both
-  // sides build their own with the same seeded RNG, so contents match,
-  // but each player opens their own copy and gets their own loot.
-  if (!isGuestActive()) {
-    const enemyCount = 2 + Math.floor(state.floor * 1.1);
-    for (let i = 0; i < enemyCount; i++) placeEnemy(occupied, false);
-
-    if (state.floor % 5 === 0) {
-      state.bossAlive = true;
-      placeEnemy(occupied, true);
-    }
-  } else {
-    state.bossAlive = state.floor % 5 === 0;
+  // Pre-generate enemies deterministically on both host and guest. Same
+  // base seed + per-floor sub-seed + same nextEnemyId counter produce
+  // identical IDs and positions on both clients, so the guest has a
+  // playable world the moment they enter any floor — they don't have to
+  // wait for the host to be on the same floor and broadcast a snapshot
+  // before spells have something to target. Host remains authoritative;
+  // its broadcasts overlay actual state changes (HP, deaths) onto this
+  // shared starting point.
+  const enemyCount = 2 + Math.floor(state.floor * 1.1);
+  for (let i = 0; i < enemyCount; i++) placeEnemy(occupied, false);
+  if (state.floor % 5 === 0) {
+    state.bossAlive = true;
+    placeEnemy(occupied, true);
   }
 
   // Re-seed JUST for chest placement using a deterministic key. Host and
