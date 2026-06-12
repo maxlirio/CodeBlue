@@ -206,9 +206,13 @@ export function attachInput() {
   canvas.addEventListener("gestureend", killDefault);
   canvas.addEventListener("contextmenu", killDefault);
 
-  // Document-level: suppress iOS double-tap zoom
+  // Document-level: suppress iOS double-tap zoom. Skip when the target
+  // is an editable field — double-tap on an input is how the user
+  // selects existing text, and preventDefault here would eat it.
   let lastTap = 0;
   document.addEventListener("touchend", (ev) => {
+    const tag = ev.target && ev.target.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA") { lastTap = 0; return; }
     const now = Date.now();
     if (now - lastTap < 350) ev.preventDefault();
     lastTap = now;

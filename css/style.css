@@ -270,7 +270,11 @@ canvas {
   border-radius: 14px;
   color: var(--ink);
   display: grid;
-  align-content: center;
+  /* `safe center` keeps the overlay vertically centered when it fits,
+     but falls back to top-aligned once content overflows. Without
+     `safe`, an overflowing overlay gets clipped above the scroll
+     origin and the user can scroll down but never reach the top. */
+  align-content: safe center;
   justify-items: center;
   gap: 12px;
   padding: 18px;
